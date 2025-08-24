@@ -53,6 +53,16 @@ class KeyboardWidget(QWidget):
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(1)
         self.oct_label = QLabel("Octave: 0")
+        # Octave +/- buttons
+        self.oct_minus_btn = QPushButton("-")
+        self.oct_plus_btn = QPushButton("+")
+        for b in (self.oct_minus_btn, self.oct_plus_btn):
+            b.setCursor(Qt.PointingHandCursor)
+            b.setFixedWidth(20)
+            b.setFixedHeight(18)
+            # Styling will be applied uniformly later via _apply_header_button_styles()
+        self.oct_minus_btn.clicked.connect(lambda: self.change_octave(-1))
+        self.oct_plus_btn.clicked.connect(lambda: self.change_octave(+1))
         
         # Add sustain toggle button (clearly styled) and All Notes Off button
         self.sustain_btn = QPushButton("Sustain: Off")
@@ -150,12 +160,19 @@ class KeyboardWidget(QWidget):
             pass
         
         header.addWidget(self.oct_label)
+        header.addWidget(self.oct_minus_btn)
+        header.addWidget(self.oct_plus_btn)
         header.addWidget(self.vel_label)
         header.addStretch()
         header.addWidget(self.sustain_btn)
         header.addWidget(self.latch_btn)
         header.addWidget(self.all_off_btn)
         header.addWidget(self.vel_slider)
+        # Apply unified modern styles to header buttons
+        try:
+            self._apply_header_button_styles()
+        except Exception:
+            pass
         if self._show_header:
             root.addLayout(header)
         elif self._compact_controls:
@@ -180,20 +197,40 @@ class KeyboardWidget(QWidget):
                 self.latch_btn.setMinimumWidth(70)
                 self.all_off_btn.setMinimumWidth(110)
                 # Increase padding and font size for readability
-                self.sustain_btn.setStyleSheet(self.sustain_btn.styleSheet() + "\nQPushButton { padding: 4px 8px; font-size: 11px; }")
-                self.latch_btn.setStyleSheet(self.latch_btn.styleSheet() + "\nQPushButton { padding: 4px 8px; font-size: 11px; }")
-                self.all_off_btn.setStyleSheet(self.all_off_btn.styleSheet() + "\nQPushButton { padding: 4px 8px; font-size: 11px; }")
+                self._apply_header_button_styles()
+                # Slightly larger octave buttons in compact bar
+                self.oct_minus_btn.setFixedHeight(22)
+                self.oct_plus_btn.setFixedHeight(22)
+                self.oct_minus_btn.setFixedWidth(24)
+                self.oct_plus_btn.setFixedWidth(24)
             except Exception:
                 pass
+            controls.addWidget(self.oct_minus_btn)
+            controls.addWidget(self.oct_plus_btn)
             controls.addWidget(self.sustain_btn)
             controls.addWidget(self.latch_btn)
             controls.addWidget(self.all_off_btn)
             controls.addStretch()
             root.addWidget(controls_widget)
 
+        # Small vertical gap between controls and keys
+        try:
+            root.addSpacing(8)
+        except Exception:
+            pass
+
         # Create a container widget for absolute positioning
         piano_container = QWidget()
-        piano_container.setFixedHeight(100)  # Exactly white key height
+        piano_container.setFixedHeight(110)  # White keys +10 vs original 100
+        # Dark instrument panel background under keys
+        piano_container.setStyleSheet(
+            """
+            QWidget {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #1b1b1b, stop:0.5 #202020, stop:1 #1b1b1b);
+            }
+            """
+        )
         try:
             # Do not allow horizontal expansion; keep width exactly to keys
             piano_container.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
@@ -205,87 +242,108 @@ class KeyboardWidget(QWidget):
         # Create white keys first (they go in the background)
         white_keys = self.layout_model.rows[0].keys
         x_pos = 0
-        
+        white_positions: list[tuple[int, int]] = []  # (white_note, x)
+
         for white_key in white_keys:
+            w = int(44 * white_key.width)
             if white_key.note >= 0:  # Skip spacer keys
                 btn = QPushButton("", piano_container)
-                btn.setGeometry(x_pos, 0, int(44 * white_key.width), 100)  # Align to top
+                # Use full width for reliable click/drag; separators are visual via borders
+                btn.setGeometry(x_pos, 0, w, 110)
                 btn.setStyleSheet(f"""
                     QPushButton {{
-                        background-color: {white_key.color or 'white'};
-                        border: 1px solid #ccc;
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #ffffff, stop:0.25 #fbfbfb, stop:0.55 #f3f3f3, stop:1 #e7e7e7);
+                        border-top: 1px solid #d8d8d8;
+                        border-left: 1px solid #dadada;
+                        border-right: 1px solid #cfcfcf; /* slightly darker right edge */
+                        border-bottom: 2px solid #bbbbbb; /* subtle bottom lip */
                         border-radius: 0px;
                     }}
-                    QPushButton:pressed, QPushButton[held="true"] {{
-                        background-color: #e0e0e0;
+                    QPushButton:pressed {{
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #eaeaea, stop:0.4 #e2e2e2, stop:1 #d2d2d2);
+                        border-top: 1px solid #4aa3ff;
+                        border-left: 1px solid #4aa3ff;
+                        border-right: 1px solid #4aa3ff;
+                        border-bottom: 2px solid #8aaee6;
+                    }}
+                    QPushButton[held=\"true\"] {{
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #ededed, stop:0.4 #e6e6e6, stop:1 #d9d9d9);
+                        border-top: 1px solid #4aa3ff; /* blue for sustained/latched */
+                        border-left: 1px solid #4aa3ff;
+                        border-right: 1px solid #4aa3ff;
+                        border-bottom: 2px solid #2f82e6;
+                    }}
+                    QPushButton:hover {{
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #ffffff, stop:0.5 #f9f9f9, stop:1 #f0f0f0);
                     }}
                 """)
                 btn.pressed.connect(lambda k=white_key: self.on_key_press(k))
                 btn.released.connect(lambda k=white_key: self.on_key_release(k))
-                
-                # Store button geometry for mouse detection
                 btn.key_note = white_key.note
-                
-                # Store button reference keyed by base note (independent of octave)
                 self.key_buttons[white_key.note] = btn
-            
-            x_pos += int(44 * white_key.width)
-        
-        # Create black keys (they overlay the white keys) - direct approach
-        if len(self.layout_model.rows) > 1:
-            # Calculate white key positions
-            white_key_positions = []
-            temp_x = 0
-            for white_key in white_keys:
-                if white_key.note >= 0:
-                    white_key_positions.append((temp_x, white_key.note))
-                temp_x += int(44 * white_key.width)
-            
-            # Create black keys directly based on white key notes
-            for i, (white_x, white_note) in enumerate(white_key_positions):
-                note_in_octave = white_note % 12
-                
-                # Black keys come after C, D, F, G, A (notes 0, 2, 5, 7, 9)
-                if note_in_octave in [0, 2, 5, 7, 9]:
-                    # Calculate the black key note (semitone above the white key)
-                    black_note = white_note + 1
-                    
-                    # Position black key between this white key and the next
-                    black_x = white_x + 32  # Center between keys
-                    
-                    btn = QPushButton("", piano_container)
-                    btn.setGeometry(black_x, 0, 28, 65)  # Align to top
-                    btn.setStyleSheet("""
-                        QPushButton {
-                            background-color: black;
-                            border: 1px solid #333;
-                            border-radius: 0px;
-                        }
-                        QPushButton:pressed, QPushButton[held="true"] {
-                            background-color: #333;
-                        }
-                    """)
-                    
-                    # Create a KeyDef for the black key with correct note
-                    black_key_def = KeyDef(
-                        label="",
-                        note=black_note,
-                        color="black",
-                        width=0.7,
-                        height=1.0,
-                        velocity=100,
-                        channel=0
-                    )
-                    
-                    btn.pressed.connect(lambda k=black_key_def: self.on_key_press(k))
-                    btn.released.connect(lambda k=black_key_def: self.on_key_release(k))
-                    btn.raise_()  # Bring black keys to front
-                    
-                    # Store button geometry for mouse detection
-                    btn.key_note = black_note
-                    
-                    # Store button reference keyed by base note (independent of octave)
-                    self.key_buttons[black_note] = btn
+                white_positions.append((white_key.note, x_pos))
+            # advance by full width (no -1; gaps are visual only)
+            x_pos += w
+
+        # Create black keys (in front), positioned between specific whites
+        for white_note, white_x in white_positions:
+            note_in_octave = white_note % 12
+            if note_in_octave in [0, 2, 5, 7, 9]:
+                black_note = white_note + 1
+                black_x = white_x + 32  # centered between adjacent whites
+                btn = QPushButton("", piano_container)
+                btn.setGeometry(black_x, 0, 28, 68)
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #3a3a3a, stop:0.12 #2a2a2a, stop:0.5 #121212, stop:1 #050505);
+                        border-top: 1px solid #3a3a3a;
+                        border-left: 1px solid #222;
+                        border-right: 1px solid #222;
+                        border-bottom: 2px solid #0b0b0b;
+                        border-radius: 3px;
+                    }
+                    QPushButton:pressed {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #6a6a6a, stop:0.35 #474747, stop:0.7 #2b2b2b, stop:1 #191919);
+                        /* Visible accent outline to indicate activation */
+                        border-top: 1px solid #4aa3ff;
+                        border-left: 1px solid #4aa3ff;
+                        border-right: 1px solid #4aa3ff;
+                        border-bottom: 2px solid #0a0a0a;
+                    }
+                    QPushButton[held=\"true\"] {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #636363, stop:0.35 #424242, stop:0.7 #282828, stop:1 #181818);
+                        border-top: 1px solid #4aa3ff;
+                        border-left: 1px solid #4aa3ff;
+                        border-right: 1px solid #4aa3ff;
+                        border-bottom: 2px solid #0b0b0b;
+                    }
+                    QPushButton:hover {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #3b3b3b, stop:0.5 #191919, stop:1 #060606);
+                    }
+                """)
+                # Signals use KeyDef with the black note
+                black_key_def = KeyDef(
+                    label="",
+                    note=black_note,
+                    color="black",
+                    width=0.7,
+                    height=1.0,
+                    velocity=100,
+                    channel=0,
+                )
+                btn.pressed.connect(lambda k=black_key_def: self.on_key_press(k))
+                btn.released.connect(lambda k=black_key_def: self.on_key_release(k))
+                btn.raise_()
+                btn.key_note = black_note
+                self.key_buttons[black_note] = btn
         
         # If the highest key is black, remove it so the keyboard doesn't end with a black key
         try:
@@ -344,21 +402,79 @@ class KeyboardWidget(QWidget):
         n = quantize(n, self.layout_model.quantize_scale or "chromatic", self.layout_model.custom_scale)
         return n
 
+    def _apply_header_button_styles(self):
+        """Apply modern, unified styles to header/controls buttons with blue activation."""
+        style = (
+            "QPushButton {"
+            "  padding: 3px 8px;"
+            "  min-height: 0px;"
+            "  font-size: 11px;"
+            "  border-radius: 4px;"
+            "  border: 1px solid #5a5f66;"
+            "  color: #eaeaea;"
+            "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+            "      stop:0 #3b4148, stop:1 #2e343b);"
+            "}"
+            "QPushButton:hover {"
+            "  border-color: #8aaef8;"
+            "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+            "      stop:0 #454c54, stop:1 #363c43);"
+            "}"
+            "QPushButton:pressed {"
+            "  border-color: #4aa3ff;"
+            "  background: #262e37;"
+            "  color: #ffffff;"
+            "}"
+            "QPushButton:checked {"
+            "  background-color: #4aa3ff;"
+            "  border: 1px solid #2f82e6;"
+            "  color: #ffffff;"
+            "}"
+            "QPushButton:checked:hover {"
+            "  background-color: #61b3ff;"
+            "}"
+            "QPushButton:disabled {"
+            "  color: #9aa0a6;"
+            "  background: #2a2f35;"
+            "  border-color: #3a3f44;"
+            "}"
+        )
+        # Apply to all header/compact control buttons
+        for b in (self.oct_minus_btn, self.oct_plus_btn, self.sustain_btn, self.latch_btn, self.all_off_btn):
+            try:
+                b.setStyleSheet(style)
+            except Exception:
+                pass
+
+    def _update_oct_label(self):
+        try:
+            self.oct_label.setText(f"Octave: {self.octave_offset}")
+        except Exception:
+            pass
+
+    def change_octave(self, delta: int):
+        # Clamp to a reasonable range to avoid running off MIDI limits
+        new_off = max(-5, min(5, self.octave_offset + int(delta)))
+        if new_off != self.octave_offset:
+            self.octave_offset = new_off
+            self._update_oct_label()
+
     # --- Sizing helpers ---
     def sizeHint(self) -> QSize:  # type: ignore[override]
         try:
             width = int(self.piano_container.width())
         except Exception:
             width = 800
+        keys_h = 110
         if getattr(self, "_show_header", True):
-            # header(~20-24) + keys(100)
-            return QSize(width, 124)
+            # header(~20-24) + keys(110)
+            return QSize(width, 134)
         elif getattr(self, "_compact_controls", True):
-            # compact controls (~18) + keys(100)
-            return QSize(width, 118)
+            # compact controls (~18) + keys(110)
+            return QSize(width, 128)
         else:
             # keys only
-            return QSize(width, 100)
+            return QSize(width, keys_h)
 
     # --- Visual helpers ---
     def _apply_btn_visual(self, btn: QPushButton | None, down: bool, held: bool):
@@ -382,17 +498,35 @@ class KeyboardWidget(QWidget):
             btn = None
         self._apply_btn_visual(btn, down, held)
 
+    def _sync_visuals_if_needed(self):
+        """When neither sustain nor latch is enabled, ensure no stray 'held' visuals remain
+        for keys that aren't in active_notes. This helps avoid 'stuck' pressed looks after
+        complex drags.
+        """
+        if getattr(self, 'sustain', False) or getattr(self, 'latch', False):
+            return
+        ch = self.midi_channel
+        try:
+            active = set(self.active_notes)
+        except Exception:
+            active = set()
+        for base_note, btn in self.key_buttons.items():
+            eff = self.effective_note(base_note)
+            if (eff, ch) not in active:
+                self._apply_btn_visual(btn, False, False)
+
     def minimumSizeHint(self) -> QSize:  # type: ignore[override]
         try:
             width = int(self.piano_container.width())
         except Exception:
             width = 400
+        keys_h = 110
         if getattr(self, "_show_header", True):
-            return QSize(width, 118)
+            return QSize(width, 128)
         elif getattr(self, "_compact_controls", True):
-            return QSize(width, 118)
+            return QSize(width, 128)
         else:
-            return QSize(width, 100)
+            return QSize(width, keys_h)
 
     def on_key_press(self, key: KeyDef):
         base_note = key.note
@@ -489,6 +623,8 @@ class KeyboardWidget(QWidget):
                 pass
             # Clear visual when not sustaining
             self._apply_note_visual(base_note, False, False)
+            # Also ensure no other strays
+            self._sync_visuals_if_needed()
         else:
             # Sustaining: optionally keep or clear visual based on preference
             if not getattr(self, 'visual_hold_on_sustain', True):
@@ -574,6 +710,8 @@ class KeyboardWidget(QWidget):
                         self._apply_btn_visual(self.last_drag_button, False, False)
                 self.last_drag_key = None
                 self.last_drag_button = None
+                # Normalize visuals in case of missed transitions
+                self._sync_visuals_if_needed()
                 return False
         return super().eventFilter(obj, event)
 
@@ -592,6 +730,7 @@ class KeyboardWidget(QWidget):
                     self._apply_btn_visual(self.last_drag_button, False, False)
             self.last_drag_key = None
             self.last_drag_button = None
+            self._sync_visuals_if_needed()
 
     def set_sustain(self, checked: bool):
         """Set sustain state and synchronize UI/notes."""
@@ -636,11 +775,9 @@ class KeyboardWidget(QWidget):
     def keyPressEvent(self, event):
         k = event.key()
         if k == Qt.Key_Z:
-            self.octave_offset -= 1
-            self.oct_label.setText(f"Octave: {self.octave_offset}")
+            self.change_octave(-1)
         elif k == Qt.Key_X:
-            self.octave_offset += 1
-            self.oct_label.setText(f"Octave: {self.octave_offset}")
+            self.change_octave(+1)
         elif k == Qt.Key_1:
             self.vel_curve = "linear"; self.vel_label.setText("Vel curve: linear")
         elif k == Qt.Key_2:

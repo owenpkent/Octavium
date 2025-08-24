@@ -89,7 +89,7 @@ def create_49_key_piano() -> Layout:
         name="Piano 49-Key",
         columns=len(white_keys),
         gap=0,
-        base_octave=2,
+        base_octave=3,
         allow_poly=True,
         quantize_scale="chromatic",
         rows=[white_row, black_row]

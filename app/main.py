@@ -11,7 +11,7 @@ from .piano_layout import create_piano_by_size
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, app_ref: QApplication, size: int = 61, port_hint: str = "loopMIDI Port 1", midi: MidiOut | None = None):
+    def __init__(self, app_ref: QApplication, size: int = 49, port_hint: str = "loopMIDI Port 1", midi: MidiOut | None = None):
         super().__init__()
         self.app_ref = app_ref
         self.current_size = size

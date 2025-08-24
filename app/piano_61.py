@@ -105,7 +105,7 @@ def create_61_key_piano() -> Layout:
         name="Piano 61-Key",
         columns=len(white_keys),
         gap=0,
-        base_octave=2,
+        base_octave=3,
         allow_poly=True,
         quantize_scale="chromatic",
         rows=[white_row, black_row]

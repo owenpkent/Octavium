@@ -57,7 +57,7 @@ def create_25_key_piano() -> Layout:
         name="Piano 25-Key",
         columns=len(white_keys),
         gap=0,
-        base_octave=3,
+        base_octave=4,
         allow_poly=True,
         quantize_scale="chromatic",
         rows=[white_row, black_row]
