@@ -52,7 +52,7 @@ class KeyboardWidget(QWidget):
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(1)
-        self.oct_label = QLabel("Octave: 0")
+        self.oct_label = QLabel("Octave")
         # Octave +/- buttons
         self.oct_minus_btn = QPushButton("-")
         self.oct_plus_btn = QPushButton("+")
@@ -154,13 +154,20 @@ class KeyboardWidget(QWidget):
             self.all_off_btn.setFixedHeight(18)
             self.oct_label.setFixedHeight(16)
             self.vel_label.setFixedHeight(16)
-            self.oct_label.setStyleSheet("font-size: 9px;")
+            # Make the 'Octave' label clearly visible between +/-
+            self.oct_label.setMinimumWidth(60)
+            self.oct_label.setAlignment(Qt.AlignCenter)
+            self.oct_label.setStyleSheet(
+                "font-size: 10px; color: #dddddd; padding: 0 6px; "
+                "background-color: rgba(255,255,255,0.08); "
+                "border: 1px solid #444; border-radius: 3px;"
+            )
             self.vel_label.setStyleSheet("font-size: 9px;")
         except Exception:
             pass
         
-        header.addWidget(self.oct_label)
         header.addWidget(self.oct_minus_btn)
+        header.addWidget(self.oct_label)
         header.addWidget(self.oct_plus_btn)
         header.addWidget(self.vel_label)
         header.addStretch()
@@ -206,6 +213,7 @@ class KeyboardWidget(QWidget):
             except Exception:
                 pass
             controls.addWidget(self.oct_minus_btn)
+            controls.addWidget(self.oct_label)
             controls.addWidget(self.oct_plus_btn)
             controls.addWidget(self.sustain_btn)
             controls.addWidget(self.latch_btn)
@@ -250,6 +258,10 @@ class KeyboardWidget(QWidget):
                 btn = QPushButton("", piano_container)
                 # Use full width for reliable click/drag; separators are visual via borders
                 btn.setGeometry(x_pos, 0, w, 110)
+                try:
+                    btn.setAttribute(Qt.WA_StyledBackground, True)
+                except Exception:
+                    pass
                 btn.setStyleSheet(f"""
                     QPushButton {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -260,25 +272,37 @@ class KeyboardWidget(QWidget):
                         border-bottom: 2px solid #bbbbbb; /* subtle bottom lip */
                         border-radius: 0px;
                     }}
-                    QPushButton:pressed {{
-                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #eaeaea, stop:0.4 #e2e2e2, stop:1 #d2d2d2);
-                        border-top: 1px solid #4aa3ff;
-                        border-left: 1px solid #4aa3ff;
-                        border-right: 1px solid #4aa3ff;
-                        border-bottom: 2px solid #8aaee6;
-                    }}
-                    QPushButton[held=\"true\"] {{
-                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #ededed, stop:0.4 #e6e6e6, stop:1 #d9d9d9);
-                        border-top: 1px solid #4aa3ff; /* blue for sustained/latched */
-                        border-left: 1px solid #4aa3ff;
-                        border-right: 1px solid #4aa3ff;
-                        border-bottom: 2px solid #2f82e6;
-                    }}
+                    /* Put hover BEFORE held so held wins when both apply */
                     QPushButton:hover {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                             stop:0 #ffffff, stop:0.5 #f9f9f9, stop:1 #f0f0f0);
+                    }}
+                    QPushButton:pressed {{
+                        /* Fill entire key with activation blue */
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #6bb8ff, stop:1 #2f82e6);
+                        border-top: 1px solid #2f82e6;
+                        border-left: 1px solid #2f82e6;
+                        border-right: 1px solid #2f82e6;
+                        border-bottom: 2px solid #1b64c7;
+                    }}
+                    QPushButton[held=\"true\"] {{
+                        /* Slightly different blue for held to differentiate subtly */
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #5fb1ff, stop:1 #2b7ade);
+                        border-top: 1px solid #2f82e6;
+                        border-left: 1px solid #2f82e6;
+                        border-right: 1px solid #2f82e6;
+                        border-bottom: 2px solid #1b64c7;
+                    }}
+                    /* Keep held look even when hovered */
+                    QPushButton[held=\"true\"]:hover {{
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #5fb1ff, stop:1 #2b7ade);
+                        border-top: 1px solid #2f82e6;
+                        border-left: 1px solid #2f82e6;
+                        border-right: 1px solid #2f82e6;
+                        border-bottom: 2px solid #1b64c7;
                     }}
                 """)
                 btn.pressed.connect(lambda k=white_key: self.on_key_press(k))
@@ -297,6 +321,10 @@ class KeyboardWidget(QWidget):
                 black_x = white_x + 32  # centered between adjacent whites
                 btn = QPushButton("", piano_container)
                 btn.setGeometry(black_x, 0, 28, 68)
+                try:
+                    btn.setAttribute(Qt.WA_StyledBackground, True)
+                except Exception:
+                    pass
                 btn.setStyleSheet("""
                     QPushButton {
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -307,26 +335,37 @@ class KeyboardWidget(QWidget):
                         border-bottom: 2px solid #0b0b0b;
                         border-radius: 3px;
                     }
-                    QPushButton:pressed {
-                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #6a6a6a, stop:0.35 #474747, stop:0.7 #2b2b2b, stop:1 #191919);
-                        /* Visible accent outline to indicate activation */
-                        border-top: 1px solid #4aa3ff;
-                        border-left: 1px solid #4aa3ff;
-                        border-right: 1px solid #4aa3ff;
-                        border-bottom: 2px solid #0a0a0a;
-                    }
-                    QPushButton[held=\"true\"] {
-                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #636363, stop:0.35 #424242, stop:0.7 #282828, stop:1 #181818);
-                        border-top: 1px solid #4aa3ff;
-                        border-left: 1px solid #4aa3ff;
-                        border-right: 1px solid #4aa3ff;
-                        border-bottom: 2px solid #0b0b0b;
-                    }
+                    /* Put hover BEFORE held so held wins when both apply */
                     QPushButton:hover {
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                             stop:0 #3b3b3b, stop:0.5 #191919, stop:1 #060606);
+                    }
+                    QPushButton:pressed {
+                        /* Fill entire key with activation blue */
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #4aa3ff, stop:1 #2f82e6);
+                        border-top: 1px solid #2f82e6;
+                        border-left: 1px solid #2f82e6;
+                        border-right: 1px solid #2f82e6;
+                        border-bottom: 2px solid #0a0a0a;
+                    }
+                    QPushButton[held=\"true\"] {
+                        /* Slightly darker blue for held */
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #3f9cff, stop:1 #2b7ade);
+                        border-top: 1px solid #2f82e6;
+                        border-left: 1px solid #2f82e6;
+                        border-right: 1px solid #2f82e6;
+                        border-bottom: 2px solid #0b0b0b;
+                    }
+                    /* Keep held look even when hovered */
+                    QPushButton[held=\"true\"]:hover {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #3f9cff, stop:1 #2b7ade);
+                        border-top: 1px solid #2f82e6;
+                        border-left: 1px solid #2f82e6;
+                        border-right: 1px solid #2f82e6;
+                        border-bottom: 2px solid #0b0b0b;
                     }
                 """)
                 # Signals use KeyDef with the black note
@@ -448,7 +487,8 @@ class KeyboardWidget(QWidget):
 
     def _update_oct_label(self):
         try:
-            self.oct_label.setText(f"Octave: {self.octave_offset}")
+            # Keep a static label between +/- per design
+            self.oct_label.setText("Octave")
         except Exception:
             pass
 
@@ -488,6 +528,7 @@ class KeyboardWidget(QWidget):
                 st.unpolish(btn)
                 st.polish(btn)
             btn.update()
+            btn.repaint()  # Force repaint after style changes
         except Exception:
             pass
 
@@ -651,6 +692,17 @@ class KeyboardWidget(QWidget):
                     gp = event.globalPos()
                 container_pos = self.piano_container.mapFromGlobal(gp)
                 widget_under = self.piano_container.childAt(container_pos)
+                # Only suppress switching if the cursor is still within the original button
+                # AND there isn't a different key under the cursor. This allows switching to
+                # an overlapping black key when actually hovered.
+                if isinstance(self.last_drag_button, QPushButton):
+                    try:
+                        if self.last_drag_button.geometry().contains(container_pos):
+                            if not (isinstance(widget_under, QPushButton) and widget_under is not self.last_drag_button):
+                                self.last_drag_button.setDown(True)
+                                return False
+                    except Exception:
+                        pass
                 if isinstance(widget_under, QPushButton) and hasattr(widget_under, 'key_note'):
                     current_note = self.effective_note(widget_under.key_note)
                     if not self.last_drag_key or current_note != self.effective_note(self.last_drag_key.note):
@@ -837,7 +889,8 @@ class KeyboardWidget(QWidget):
         self.update_window_title()
 
     def update_window_title(self):
-        base = self.layout_model.name
+        # Use the layout's computed name (already reflects total key count correctly)
+        base = getattr(self.layout_model, 'name', 'Keyboard')
         port_suffix = f" -> {self.port_name}" if self.port_name else ""
         ch_suffix = f" [Ch {self.midi_channel + 1}]"
         self.setWindowTitle(f"{base}{port_suffix}{ch_suffix}")

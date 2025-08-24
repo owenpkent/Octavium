@@ -74,15 +74,14 @@ def create_piano_layout(
         'A': 'A#'   # A# goes between A and B
     }
     
-    for white_key in white_keys:
+    for idx, white_key in enumerate(white_keys):
+        # Skip adding a black key after the last white key; there is no key to its right
+        if idx >= len(white_keys) - 1:
+            continue
         note_in_octave = white_key.note % 12
         white_note_name = note_names[note_in_octave]
-        
         if white_note_name in black_key_positions_map:
-            # Calculate the black key note
             black_note = white_key.note + 1
-            
-            # Create black key
             black_key = KeyDef(
                 label="",
                 note=black_note,
@@ -95,9 +94,11 @@ def create_piano_layout(
     # Create layout with white keys first, then black keys overlaid
     white_row = RowDef(keys=white_keys)
     black_row = RowDef(keys=black_keys)
+    # Compute total keys (white + black) for accurate naming
+    total_keys = len(white_keys) + len(black_keys)
     
     return Layout(
-        name=f"Piano {num_keys}-Key",
+        name=f"Piano {total_keys}-Key",
         columns=len(white_keys),
         gap=0,
         base_octave=base_octave,
@@ -193,11 +194,14 @@ def create_piano_by_size(size: int) -> Layout:
         size = 61
     
     config = configs[size]
-    return create_piano_layout(
+    layout = create_piano_layout(
         num_keys=config["white_keys"],
         start_note=config["start_note"],
         base_octave=config["base_octave"]
     )
+    # Ensure the name reflects the intended total size (25/49/61/etc.)
+    layout.name = f"Piano {size}-Key"
+    return layout
 
 
 def create_25_key_piano() -> Layout:

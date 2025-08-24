@@ -1,9 +1,11 @@
 import sys
+from datetime import datetime
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QMenu, QInputDialog, QMessageBox
 )
-from PySide6.QtGui import QAction, QActionGroup
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QAction, QActionGroup, QIcon, QPixmap
+from pathlib import Path
+from PySide6.QtCore import Qt, QTimer, QUrl
 from .keyboard_widget import KeyboardWidget
 from .midi_io import MidiOut, list_output_names
 from .themes import APP_STYLES
@@ -14,6 +16,12 @@ class MainWindow(QMainWindow):
     def __init__(self, app_ref: QApplication, size: int = 49, port_hint: str = "loopMIDI Port 1", midi: MidiOut | None = None):
         super().__init__()
         self.app_ref = app_ref
+        # Set window icon
+        try:
+            icon_path = Path(__file__).resolve().parent.parent / "Octavium icon.png"
+            self.setWindowIcon(QIcon(str(icon_path)))
+        except Exception:
+            pass
         self.current_size = size
         self.current_channel = 1  # 1-16
         # Create or reuse MIDI and keyboard
@@ -28,6 +36,7 @@ class MainWindow(QMainWindow):
         self.keyboard.port_name = port_hint
         self.keyboard.set_channel(self.current_channel)
         self.setCentralWidget(self.keyboard)
+        self._update_window_title()
         self._resize_for_layout(self.keyboard.layout_model)
         # Ensure one more resize after layout settles
         QTimer.singleShot(0, lambda: (
@@ -70,110 +79,93 @@ class MainWindow(QMainWindow):
         select_port = QAction("Select Output Port...", self)
         select_port.triggered.connect(self.select_midi_port)
         midi_menu.addAction(select_port)
-        # Sustain toggle (since header is hidden by default)
-        sustain_toggle = QAction("Sustain", self)
-        sustain_toggle.setCheckable(True)
-        sustain_toggle.setChecked(False)
-        def _toggle_sustain(checked: bool):
-            try:
-                self.keyboard.set_sustain(checked)
-            except Exception:
-                pass
-        sustain_toggle.toggled.connect(_toggle_sustain)
-        midi_menu.addAction(sustain_toggle)
-        # Latch toggle (behaves like sustain but press toggles note off if already on)
-        latch_toggle = QAction("Latch", self)
-        latch_toggle.setCheckable(True)
-        latch_toggle.setChecked(False)
-        def _toggle_latch(checked: bool):
-            try:
-                self.keyboard.set_latch(checked)
-            except Exception:
-                pass
-        latch_toggle.toggled.connect(_toggle_latch)
-        midi_menu.addAction(latch_toggle)
-        # Visual hold on sustain
-        visual_hold = QAction("Hold Visual on Sustain", self)
+        # Visual hold preference (keep visual pressed while sustain is on)
+        visual_hold = QAction("Hold Visuals During Sustain", self)
         visual_hold.setCheckable(True)
         visual_hold.setChecked(True)
         def _toggle_visual_hold(checked: bool):
             try:
                 self.keyboard.visual_hold_on_sustain = checked
-                if not checked and self.keyboard.sustain:
-                    # If disabling while sustaining, clear any stuck visuals
+                # Re-sync visuals when toggled, without touching notes
+                try:
+                    st = self.keyboard.style()
                     for btn in self.keyboard.key_buttons.values():
-                        try:
-                            btn.setDown(False)
-                            btn.setProperty('held', 'false')
-                            st = btn.style()
-                            if st is not None:
-                                st.unpolish(btn)
-                                st.polish(btn)
-                            btn.update()
-                        except Exception:
-                            pass
+                        st.unpolish(btn)
+                        st.polish(btn)
+                        btn.update()
+                except Exception:
+                    pass
             except Exception:
                 pass
         visual_hold.triggered.connect(_toggle_visual_hold)
         midi_menu.addAction(visual_hold)
         # Keep references for persistence across keyboard rebuilds
         self.menu_actions = getattr(self, 'menu_actions', {})
-        self.menu_actions['sustain'] = sustain_toggle
         self.menu_actions['visual_hold'] = visual_hold
-        self.menu_actions['latch'] = latch_toggle
         # Initialize keyboard flags from menu
         try:
             self.keyboard.visual_hold_on_sustain = visual_hold.isChecked()
-            self.keyboard.set_latch(self.menu_actions['latch'].isChecked())
         except Exception:
             pass
-        all_off = QAction("All Notes Off", self)
-        all_off.triggered.connect(self.keyboard.all_notes_off_clicked)
-        midi_menu.addAction(all_off)
 
-        # Voices (polyphony) menu
+        # Voices (polyphony) menu: Unlimited or 1-8 (exclusive)
         voices_menu = menubar.addMenu("&Voices")
-        voices_enable = QAction("Enable Limit", self)
-        voices_enable.setCheckable(True)
-        voices_enable.setChecked(False)
-        def _toggle_voices_enabled(checked: bool):
-            try:
-                self.keyboard.set_polyphony_enabled(checked)
-                # Enable/disable numeric actions
-                if hasattr(self, 'voices_actions'):
-                    for act in self.voices_actions:
-                        act.setEnabled(checked)
-            except Exception:
-                pass
-        voices_enable.toggled.connect(_toggle_voices_enabled)
-        voices_menu.addAction(voices_enable)
-        voices_menu.addSeparator()
-        # 1-8 options, exclusive
         self.voices_group = QActionGroup(self)
         self.voices_group.setExclusive(True)
         self.voices_actions = []
-        def _set_polyphony(n: int):
+        # Previous selection, default Unlimited
+        self.menu_actions = getattr(self, 'menu_actions', {})
+        prev_sel = self.menu_actions.get('voices_selected', 'Unlimited')
+        # Unlimited action
+        unlimited_act = QAction("Unlimited", self)
+        unlimited_act.setCheckable(True)
+        unlimited_act.setChecked(prev_sel == 'Unlimited')
+        def _select_unlimited():
             try:
-                self.keyboard.set_polyphony_max(n)
-                # If user selects a number, implicitly enable limit
-                if not voices_enable.isChecked():
-                    voices_enable.setChecked(True)
+                self.keyboard.set_polyphony_enabled(False)
             except Exception:
                 pass
+            # persist
+            self.menu_actions['voices_selected'] = 'Unlimited'
+        unlimited_act.triggered.connect(lambda checked: _select_unlimited())
+        self.voices_group.addAction(unlimited_act)
+        voices_menu.addAction(unlimited_act)
+        # Numeric actions 1-8
+        def _select_limited(n: int):
+            try:
+                self.keyboard.set_polyphony_enabled(True)
+                self.keyboard.set_polyphony_max(n)
+            except Exception:
+                pass
+            self.menu_actions['voices_selected'] = str(n)
         for n in range(1, 9):
             act = QAction(f"{n}", self)
             act.setCheckable(True)
-            if n == 8:
-                act.setChecked(True)
-            act.triggered.connect(lambda checked, val=n: _set_polyphony(val))
-            act.setEnabled(False)  # disabled until enabled checkbox is on
+            act.setChecked(prev_sel == str(n))
+            act.triggered.connect(lambda checked, val=n: _select_limited(val))
             self.voices_group.addAction(act)
             voices_menu.addAction(act)
             self.voices_actions.append(act)
+        # If nothing matched previous selection, ensure Unlimited is applied now
+        try:
+            labels = [a.text() for a in self.voices_group.actions() if a.isChecked()]
+            if not labels:
+                unlimited_act.setChecked(True)
+                _select_unlimited()
+            else:
+                sel = labels[0]
+                if sel == 'Unlimited':
+                    _select_unlimited()
+                else:
+                    try:
+                        _select_limited(int(sel))
+                    except Exception:
+                        _select_unlimited()
+        except Exception:
+            pass
         # Persist menu refs
-        self.menu_actions = getattr(self, 'menu_actions', {})
-        self.menu_actions['voices_enable'] = voices_enable
         self.menu_actions['voices_actions'] = self.voices_actions
+        self.menu_actions['voices_group'] = self.voices_group
 
         # Channel submenu 1-16
         chan_menu = midi_menu.addMenu("Channel")
@@ -212,34 +204,26 @@ class MainWindow(QMainWindow):
         self.keyboard.deleteLater()
         self.keyboard = new_keyboard
         self.keyboard.set_channel(self.current_channel)
+        self._update_window_title()
         # Preserve sustain and visual hold preferences
         try:
             if hasattr(self, 'menu_actions'):
                 # Visual hold
                 if 'visual_hold' in self.menu_actions:
                     self.keyboard.visual_hold_on_sustain = self.menu_actions['visual_hold'].isChecked()
-                # Sustain state
-                if 'sustain' in self.menu_actions:
-                    sustain_checked = self.menu_actions['sustain'].isChecked()
-                    self.keyboard.sustain_btn.setChecked(sustain_checked)
-                    self.keyboard.toggle_sustain()
-                # Voices (polyphony)
-                if 'voices_enable' in self.menu_actions:
-                    enabled = self.menu_actions['voices_enable'].isChecked()
-                    try:
-                        voices = 8
-                        if 'voices_actions' in self.menu_actions:
-                            for act in self.menu_actions['voices_actions']:
-                                if act.isChecked():
-                                    try:
-                                        voices = int(act.text())
-                                    except Exception:
-                                        voices = 8
-                                    break
-                        self.keyboard.set_polyphony_max(voices)
-                        self.keyboard.set_polyphony_enabled(enabled)
-                    except Exception:
-                        pass
+                # Voices (polyphony): apply current selection (Unlimited or 1-8)
+                sel = self.menu_actions.get('voices_selected', 'Unlimited')
+                try:
+                    if sel == 'Unlimited':
+                        self.keyboard.set_polyphony_enabled(False)
+                    else:
+                        self.keyboard.set_polyphony_enabled(True)
+                        try:
+                            self.keyboard.set_polyphony_max(int(sel))
+                        except Exception:
+                            self.keyboard.set_polyphony_max(8)
+                except Exception:
+                    pass
         except Exception:
             pass
         # Exclusive check is handled by QActionGroup, ensure correct one is checked
@@ -265,8 +249,28 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "MIDI", "No MIDI output ports found.")
             return
         current = self.keyboard.port_name or (ports[0] if ports else "")
-        port, ok = QInputDialog.getItem(self, "Select MIDI Output", "Port:", ports, ports.index(current) if current in ports else 0, False)
-        if not ok:
+        dlg = QInputDialog(self)
+        dlg.setWindowTitle("Select MIDI Output")
+        dlg.setLabelText("Port:")
+        try:
+            dlg.setComboBoxItems(ports)
+        except Exception:
+            pass
+        # preselect current
+        try:
+            idx = ports.index(current) if current in ports else 0
+            dlg.setComboBoxEditable(False)
+            dlg.setTextValue(ports[idx])
+        except Exception:
+            pass
+        # Blue bounding box around OK and Cancel
+        dlg.setStyleSheet(
+            "QPushButton { border: 2px solid #3399ff; border-radius: 4px; padding: 4px 10px; }"
+        )
+        if dlg.exec() != QMessageBox.Accepted:
+            return
+        port = dlg.textValue()
+        if not port:
             return
         midi = MidiOut(port_name_contains=port)
         self.keyboard.set_midi_out(midi, port_name=port)
@@ -363,18 +367,57 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Keyboard Shortcuts", text)
 
     def show_about_dialog(self):
+        year = datetime.now().year
+        # Build logo HTML at the top, centered
+        logo_html = ""
+        try:
+            logo_path = Path(__file__).resolve().parent.parent / "Octavium logo.png"
+            if logo_path.exists():
+                logo_url = QUrl.fromLocalFile(str(logo_path)).toString()
+                logo_html = f"<div style='text-align:center; margin-bottom:10px'><img src='{logo_url}' width='320'></div>"
+        except Exception:
+            pass
         text = (
-            "Octavium - Virtual MIDI Keyboard\n\n"
-            "A lightweight Qt-based piano keyboard with MIDI output and velocity curves.\n"
-            "Select different key counts, channels, and output ports from the menu.\n\n"
-            f"MIDI Port: {self.keyboard.port_name or 'N/A'}\n"
+            f"{logo_html}"
+            "<b>Octavium - Virtual MIDI Keyboard</b><br><br>"
+            f"(c) {year} Owen Kent<br><br>"
+            "Octavium is a virtual on-screen MIDI keyboard designed to be played with the mouse.<br>"
+            "It focuses on simple, precise mouse input—no computer keyboard required.<br><br>"
+            "<b>Features</b>:<br>"
+            "- Multiple keyboard sizes (25/49/61/73/76/88) with realistic black/white key layout<br>"
+            "- MIDI output (rtmidi if available, otherwise pygame backend)<br>"
+            "- Velocity control with selectable curves (linear/soft/hard)<br>"
+            "- Sustain and Latch modes<br>"
+            "- Channel selection and quick All Notes Off<br><br>"
+            f"Current MIDI Port: {self.keyboard.port_name or 'N/A'}"
         )
-        QMessageBox.information(self, "About Octavium", text)
+        msg = QMessageBox(self)
+        msg.setWindowTitle("About Octavium")
+        msg.setTextFormat(Qt.RichText)
+        msg.setText(text)
+        # Blue bounding box around the OK button
+        msg.setStyleSheet(
+            "QPushButton { border: 2px solid #3399ff; border-radius: 4px; padding: 4px 10px; }"
+        )
+        msg.exec()
+
+    def _update_window_title(self):
+        try:
+            kb_name = getattr(self.keyboard.layout_model, 'name', '') or 'Keyboard'
+            self.setWindowTitle(f"Octavium - {kb_name}")
+        except Exception:
+            self.setWindowTitle("Octavium")
 
 
 def run():
     app = QApplication(sys.argv)
     app.setStyleSheet(APP_STYLES)
+    # Set application icon as well (project-relative)
+    try:
+        icon_path = Path(__file__).resolve().parent.parent / "Octavium icon.png"
+        app.setWindowIcon(QIcon(str(icon_path)))
+    except Exception:
+        pass
     main = MainWindow(app)
     # Keep a ref so it isn't GC'd
     app._windows = [main]  # type: ignore[attr-defined]

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Octavium%20logo.png" alt="Octavium Logo" width="360" />
+</p>
+
 # Octavium 🎹
 
 A powerful Python desktop MIDI tool that creates multiple customizable on-screen keyboards for sending MIDI to your DAW. Built with PySide6, mido, and pygame for reliable cross-platform MIDI output.
