@@ -77,6 +77,19 @@ class MidiOut:
         else:
             self.port.send(mido.Message("control_change", control=cc, value=value, channel=channel))
 
+    def pitch_bend(self, value: int, channel: int = 0):
+        """Send pitch bend value in range [-8192, 8191]."""
+        v = max(-8192, min(8191, int(value)))
+        if self.use_pygame:
+            # Convert to 14-bit unsigned 0..16383
+            v14 = v + 8192
+            lsb = v14 & 0x7F
+            msb = (v14 >> 7) & 0x7F
+            status = 0xE0 + channel
+            self.port.write_short(status, lsb, msb)
+        else:
+            self.port.send(mido.Message("pitchwheel", pitch=v, channel=channel))
+
 def list_output_names() -> list[str]:
     """Return a list of available MIDI output port names.
     Uses mido when available; falls back to pygame.midi device names.
