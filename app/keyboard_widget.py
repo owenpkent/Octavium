@@ -53,8 +53,10 @@ class KeyboardWidget(QWidget):
                 color: white;
                 border: 1px solid #27ae60;
             }
-            QPushButton:hover { filter: brightness(0.97); }
-            QPushButton:pressed { filter: brightness(0.9); }
+            QPushButton:hover { background-color: #e9e9e9; }
+            QPushButton:pressed { background-color: #dcdcdc; }
+            QPushButton:checked:hover { background-color: #29c267; }
+            QPushButton:checked:pressed { background-color: #25b75f; }
             """
         )
         self.all_off_btn = QPushButton("All Notes Off")
@@ -69,8 +71,8 @@ class KeyboardWidget(QWidget):
                 background-color: #fafafa;
                 color: #222;
             }
-            QPushButton:hover { filter: brightness(0.97); }
-            QPushButton:pressed { filter: brightness(0.9); }
+            QPushButton:hover { background-color: #f0f0f0; }
+            QPushButton:pressed { background-color: #e5e5e5; }
             """
         )
         

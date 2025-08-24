@@ -4,8 +4,8 @@ from typing import List, Optional, Literal
 class KeyDef(BaseModel):
     label: str
     note: int
-    width: int = 1
-    height: int = 1
+    width: float = 1.0
+    height: float = 1.0
     velocity: int = 100
     channel: int = 0
     color: Optional[str] = None
