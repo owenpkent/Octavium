@@ -59,6 +59,56 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
 
+        # View menu (Mod/Pitch wheels) — place right after File
+        view_menu = menubar.addMenu("&View")
+        self.menu_actions = getattr(self, 'menu_actions', {})
+        show_mod = QAction("Show Mod Wheel", self)
+        show_mod.setCheckable(True)
+        show_mod.setChecked(bool(self.menu_actions.get('show_mod', False)))
+        show_mod.toggled.connect(lambda checked: (
+            setattr(self.menu_actions, 'show_mod', checked) if False else None,
+            self.keyboard.set_show_mod_wheel(checked),
+            self._resize_for_layout(self.keyboard.layout_model),
+            QTimer.singleShot(0, lambda: (
+                self.keyboard.adjustSize(),
+                self._resize_for_layout(self.keyboard.layout_model),
+                self.adjustSize()
+            ))
+        ))
+        view_menu.addAction(show_mod)
+        show_pitch = QAction("Show Pitch Wheel", self)
+        show_pitch.setCheckable(True)
+        show_pitch.setChecked(bool(self.menu_actions.get('show_pitch', False)))
+        show_pitch.toggled.connect(lambda checked: (
+            setattr(self.menu_actions, 'show_pitch', checked) if False else None,
+            self.keyboard.set_show_pitch_wheel(checked),
+            self._resize_for_layout(self.keyboard.layout_model),
+            QTimer.singleShot(0, lambda: (
+                self.keyboard.adjustSize(),
+                self._resize_for_layout(self.keyboard.layout_model),
+                self.adjustSize()
+            ))
+        ))
+        view_menu.addAction(show_pitch)
+        # Persist
+        self.menu_actions['show_mod'] = show_mod.isChecked()
+        self.menu_actions['show_pitch'] = show_pitch.isChecked()
+        self.menu_actions['view_show_mod'] = show_mod
+        self.menu_actions['view_show_pitch'] = show_pitch
+        # Apply current selections
+        try:
+            self.keyboard.set_show_mod_wheel(show_mod.isChecked())
+            self.keyboard.set_show_pitch_wheel(show_pitch.isChecked())
+            # Ensure window reflects current selection after menus are built
+            self._resize_for_layout(self.keyboard.layout_model)
+            QTimer.singleShot(0, lambda: (
+                self.keyboard.adjustSize(),
+                self._resize_for_layout(self.keyboard.layout_model),
+                self.adjustSize()
+            ))
+        except Exception:
+            pass
+
         # Keyboard menu (exclusive size selection)
         kb_menu = menubar.addMenu("&Keyboard")
         self.size_group = QActionGroup(self)
@@ -224,6 +274,12 @@ class MainWindow(QMainWindow):
                             self.keyboard.set_polyphony_max(8)
                 except Exception:
                     pass
+                # View menu: wheels visibility
+                try:
+                    self.keyboard.set_show_mod_wheel(bool(self.menu_actions.get('show_mod', False)))
+                    self.keyboard.set_show_pitch_wheel(bool(self.menu_actions.get('show_pitch', False)))
+                except Exception:
+                    pass
         except Exception:
             pass
         # Exclusive check is handled by QActionGroup, ensure correct one is checked
@@ -288,20 +344,26 @@ class MainWindow(QMainWindow):
         """Resize the window to fit current keyboard content width.
         Prefers the actual `piano_container.width()`; falls back to `columns * 44`.
         """
-        # Compute content width from piano and controls (whichever is wider)
+        # Compute content width from piano + optional left panel and controls (whichever is wider)
         content_width = None
         if hasattr(self, 'keyboard') and hasattr(self.keyboard, 'piano_container'):
             try:
                 w_piano = int(self.keyboard.piano_container.width())
             except Exception:
                 w_piano = None
+            # Include left panel (wheels) width when visible
+            try:
+                left_panel = getattr(self.keyboard, 'left_panel', None)
+                w_left = int(left_panel.width()) if (left_panel is not None and left_panel.isVisible()) else 0
+            except Exception:
+                w_left = 0
             try:
                 controls_widget = getattr(self.keyboard, 'controls_widget', None)
                 w_controls = int(controls_widget.width()) if controls_widget is not None else 0
             except Exception:
                 w_controls = 0
             if w_piano is not None:
-                content_width = max(w_piano, w_controls)
+                content_width = max(w_piano + w_left, w_controls)
         if content_width is None:
             try:
                 columns = getattr(layout, 'columns', 36) or 36
