@@ -17,6 +17,8 @@ class KeyboardWidget(QWidget):
         super().__init__()
         self.layout_model = layout_model
         self.midi = midi_out
+        self.port_name: str | None = None
+        self.midi_channel: int = 0  # 0-15, shown as 1-16
         self.octave_offset = 0
         self.sustain = False
         self.vel_curve = "linear"
@@ -200,8 +202,9 @@ class KeyboardWidget(QWidget):
     def on_key_press(self, key: KeyDef):
         note = self.effective_note(key.note)
         vel = velocity_curve(int(self.vel_slider.value() * (key.velocity / 127)), self.vel_curve)
-        self.midi.note_on(note, vel, key.channel)
-        self.active_notes.add((note, key.channel))
+        ch = self.midi_channel
+        self.midi.note_on(note, vel, ch)
+        self.active_notes.add((note, ch))
         
         # Set dragging state
         self.dragging = True
@@ -215,8 +218,9 @@ class KeyboardWidget(QWidget):
     def on_key_release(self, key: KeyDef):
         note = self.effective_note(key.note)
         if not self.sustain:
-            self.midi.note_off(note, key.channel)
-            self.active_notes.discard((note, key.channel))
+            ch = self.midi_channel
+            self.midi.note_off(note, ch)
+            self.active_notes.discard((note, ch))
         # Do NOT clear dragging here. We only stop dragging on actual mouse button
         # release handled by eventFilter/mouseReleaseEvent so that drag can traverse
         # across multiple keys smoothly.
@@ -240,8 +244,9 @@ class KeyboardWidget(QWidget):
                         # Stop previous
                         if self.last_drag_key and not self.sustain:
                             prev_note = self.effective_note(self.last_drag_key.note)
-                            self.midi.note_off(prev_note, self.last_drag_key.channel)
-                            self.active_notes.discard((prev_note, self.last_drag_key.channel))
+                            ch = self.midi_channel
+                            self.midi.note_off(prev_note, ch)
+                            self.active_notes.discard((prev_note, ch))
                         # Update previous button visual
                         if self.last_drag_button is not None and self.last_drag_button is not widget_under:
                             self.last_drag_button.setDown(False)
@@ -256,8 +261,9 @@ class KeyboardWidget(QWidget):
                             channel=0,
                         )
                         vel = velocity_curve(int(self.vel_slider.value() * (current_key.velocity / 127)), self.vel_curve)
-                        self.midi.note_on(current_note, vel, current_key.channel)
-                        self.active_notes.add((current_note, current_key.channel))
+                        ch = self.midi_channel
+                        self.midi.note_on(current_note, vel, ch)
+                        self.active_notes.add((current_note, ch))
                         self.last_drag_key = current_key
                         # Update current button visual and reference
                         widget_under.setDown(True)
@@ -266,8 +272,9 @@ class KeyboardWidget(QWidget):
                     # Not over any key: release previous note and clear visual, keep dragging
                     if self.last_drag_key and not self.sustain:
                         prev_note = self.effective_note(self.last_drag_key.note)
-                        self.midi.note_off(prev_note, self.last_drag_key.channel)
-                        self.active_notes.discard((prev_note, self.last_drag_key.channel))
+                        ch = self.midi_channel
+                        self.midi.note_off(prev_note, ch)
+                        self.active_notes.discard((prev_note, ch))
                     if self.last_drag_button is not None:
                         self.last_drag_button.setDown(False)
                     self.last_drag_key = None
@@ -278,8 +285,9 @@ class KeyboardWidget(QWidget):
                 self.dragging = False
                 if self.last_drag_key and not self.sustain:
                     note = self.effective_note(self.last_drag_key.note)
-                    self.midi.note_off(note, self.last_drag_key.channel)
-                    self.active_notes.discard((note, self.last_drag_key.channel))
+                    ch = self.midi_channel
+                    self.midi.note_off(note, ch)
+                    self.active_notes.discard((note, ch))
                 # Clear visuals
                 if self.last_drag_button is not None:
                     self.last_drag_button.setDown(False)
@@ -294,8 +302,9 @@ class KeyboardWidget(QWidget):
             self.dragging = False
             if self.last_drag_key and not self.sustain:
                 note = self.effective_note(self.last_drag_key.note)
-                self.midi.note_off(note, self.last_drag_key.channel)
-                self.active_notes.discard((note, self.last_drag_key.channel))
+                ch = self.midi_channel
+                self.midi.note_off(note, ch)
+                self.active_notes.discard((note, ch))
             # Clear visuals
             if self.last_drag_button is not None:
                 self.last_drag_button.setDown(False)
@@ -335,6 +344,22 @@ class KeyboardWidget(QWidget):
             self.midi.note_off(note, ch)
         self.active_notes.clear()
 
+    # ---- MIDI and title helpers ----
+    def set_midi_out(self, midi_out: MidiOut, port_name: str | None = None):
+        """Swap the MIDI output device for this keyboard and update title."""
+        # Stop any currently sounding notes before switching
+        self.all_notes_off_clicked()
+        self.midi = midi_out
+        if port_name is not None:
+            self.port_name = port_name
+        self.update_window_title()
+
+    def update_window_title(self):
+        base = self.layout_model.name
+        port_suffix = f" -> {self.port_name}" if self.port_name else ""
+        ch_suffix = f" [Ch {self.midi_channel + 1}]"
+        self.setWindowTitle(f"{base}{port_suffix}{ch_suffix}")
+
     def all_notes_off_clicked(self):
         """Clear all active notes, pressed visuals, and any drag state."""
         self.all_notes_off()
@@ -343,3 +368,12 @@ class KeyboardWidget(QWidget):
         self.last_drag_button = None
         self.last_drag_key = None
         self.dragging = False
+
+    def set_channel(self, channel_1_based: int):
+        """Set MIDI channel (1-16). Sends All Notes Off and updates title."""
+        channel_1_based = max(1, min(16, channel_1_based))
+        if self.midi_channel == channel_1_based - 1:
+            return
+        self.all_notes_off_clicked()
+        self.midi_channel = channel_1_based - 1
+        self.update_window_title()

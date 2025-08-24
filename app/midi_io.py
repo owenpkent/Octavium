@@ -76,3 +76,31 @@ class MidiOut:
             self.port.write_short(status, cc, value)
         else:
             self.port.send(mido.Message("control_change", control=cc, value=value, channel=channel))
+
+def list_output_names() -> list[str]:
+    """Return a list of available MIDI output port names.
+    Uses mido when available; falls back to pygame.midi device names.
+    """
+    names: list[str] = []
+    try:
+        outs = mido.get_output_names()
+        names.extend(outs)
+    except Exception:
+        # Ignore
+        pass
+    try:
+        pygame.midi.init()
+        for i in range(pygame.midi.get_count()):
+            info = pygame.midi.get_device_info(i)
+            if info[3] == 1:  # output device
+                names.append(info[1].decode())
+    except Exception:
+        pass
+    # Deduplicate preserving order
+    seen = set()
+    unique = []
+    for n in names:
+        if n not in seen:
+            unique.append(n)
+            seen.add(n)
+    return unique
