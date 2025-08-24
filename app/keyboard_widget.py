@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QWidget, QPushButton, QGridLayout, QHBoxLayout, QVBoxLayout, QLabel, QSlider, QApplication, QSizePolicy
-from PySide6.QtCore import Qt, QSize, QEvent
+from PySide6.QtCore import Qt, QSize, QEvent, QPropertyAnimation, QEasingCurve
 from .models import Layout, KeyDef
 from .midi_io import MidiOut
 from .scale import quantize
@@ -11,6 +11,29 @@ def velocity_curve(v_in: int, curve: str) -> int:
     if curve == "hard":
         return int((v / 127) ** 1.5 * 127)
     return v
+
+class ClickAnywhereSlider(QSlider):
+    """QSlider that lets you click anywhere on the groove to jump and drag from that point."""
+    def mousePressEvent(self, event):  # type: ignore[override]
+        if event.button() == Qt.LeftButton:
+            # Map click position to value range immediately
+            if self.orientation() == Qt.Vertical:
+                h = max(1, self.height())
+                # Invert because top is max
+                frac = 1.0 - min(1.0, max(0.0, event.position().y() / h))
+            else:
+                w = max(1, self.width())
+                frac = min(1.0, max(0.0, event.position().x() / w))
+            vmin, vmax = self.minimum(), self.maximum()
+            new_val = int(round(vmin + frac * (vmax - vmin)))
+            try:
+                self.setSliderDown(True)
+            except Exception:
+                pass
+            self.setValue(new_val)
+        # Continue with default handling to start drag
+        super().mousePressEvent(event)
+
 
 class KeyboardWidget(QWidget):
     def __init__(self, layout_model: Layout, midi_out: MidiOut, title: str = "", show_header: bool = True, compact_controls: bool = True):
@@ -227,6 +250,77 @@ class KeyboardWidget(QWidget):
         except Exception:
             pass
 
+        # --- Left-side wheels panel (Mod/Pitch) ---
+        # Create once; visibility controlled by flags
+        self.show_mod_wheel = False
+        self.show_pitch_wheel = False
+        self.left_panel = QWidget()
+        try:
+            # Start with single-wheel width; will grow if both wheels are shown
+            self.left_panel.setFixedWidth(44)
+            self.left_panel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        except Exception:
+            pass
+        # Horizontal layout to place Mod and Pitch next to each other
+        lp_layout = QHBoxLayout(self.left_panel)
+        lp_layout.setContentsMargins(6, 2, 6, 2)
+        lp_layout.setSpacing(12)
+        # Pitch wheel (center detent)
+        self.pitch_slider = ClickAnywhereSlider(Qt.Vertical)
+        self.pitch_slider.setMinimum(-8192)
+        self.pitch_slider.setMaximum(8191)
+        self.pitch_slider.setValue(0)
+        self.pitch_slider.setTickPosition(QSlider.NoTicks)
+        self.pitch_slider.valueChanged.connect(lambda v: self._send_pitch_bend(v))
+        # Smooth auto-return to center on release
+        self._pitch_anim = None
+        try:
+            self.pitch_slider.sliderReleased.connect(self._animate_pitch_to_center)
+            self.pitch_slider.sliderPressed.connect(self._stop_pitch_anim)
+        except Exception:
+            pass
+        # Mod wheel (CC1)
+        self.mod_slider = ClickAnywhereSlider(Qt.Vertical)
+        self.mod_slider.setMinimum(0)
+        self.mod_slider.setMaximum(127)
+        self.mod_slider.setValue(0)
+        self.mod_slider.setTickPosition(QSlider.NoTicks)
+        self.mod_slider.valueChanged.connect(lambda v: self._send_mod_cc(v))
+        try:
+            for s in (self.pitch_slider, self.mod_slider):
+                s.setFixedWidth(22)
+        except Exception:
+            pass
+        # Labels
+        self.mod_lbl = QLabel("Mod")
+        self.pitch_lbl = QLabel("Pitch")
+        try:
+            for lbl in (self.mod_lbl, self.pitch_lbl):
+                lbl.setAlignment(Qt.AlignHCenter)
+                lbl.setStyleSheet("font-size: 9px; color: #ddd;")
+        except Exception:
+            pass
+        # Build two vertical columns: Mod column and Pitch column
+        mod_col = QVBoxLayout()
+        mod_col.setContentsMargins(0, 0, 0, 0)
+        mod_col.setSpacing(4)
+        mod_col.addWidget(self.mod_slider, 1)
+        mod_col.addWidget(self.mod_lbl, 0)
+        pitch_col = QVBoxLayout()
+        pitch_col.setContentsMargins(0, 0, 0, 0)
+        pitch_col.setSpacing(4)
+        pitch_col.addWidget(self.pitch_slider, 1)
+        pitch_col.addWidget(self.pitch_lbl, 0)
+        lp_layout.addLayout(mod_col, 1)
+        lp_layout.addLayout(pitch_col, 1)
+        self.left_panel.setVisible(False)
+
+        # --- Row containing optional left panel and piano ---
+        keys_row = QHBoxLayout()
+        keys_row.setContentsMargins(0, 0, 0, 0)
+        keys_row.setSpacing(4)
+        keys_row.addWidget(self.left_panel)
+
         # Create a container widget for absolute positioning
         piano_container = QWidget()
         piano_container.setFixedHeight(110)  # White keys +10 vs original 100
@@ -415,6 +509,12 @@ class KeyboardWidget(QWidget):
         # Ensure minimum width matches the actual key area (no extra padding)
         try:
             exact_w = int(self.piano_container.width())
+            # Include left panel width if visible
+            if self.left_panel.isVisible():
+                try:
+                    exact_w += int(self.left_panel.width()) + 4
+                except Exception:
+                    exact_w += 48
             self.setMinimumWidth(exact_w)
             self.setMaximumWidth(exact_w)
             self.setFixedWidth(exact_w)
@@ -431,9 +531,11 @@ class KeyboardWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         # Align piano container to the left to avoid right-side blank expansion
         try:
-            root.addWidget(piano_container, 0, Qt.AlignLeft)
+            keys_row.addWidget(piano_container, 0, Qt.AlignLeft)
         except Exception:
-            root.addWidget(piano_container)
+            keys_row.addWidget(piano_container)
+        # Add the row to root
+        root.addLayout(keys_row)
 
     def effective_note(self, base_note: int) -> int:
         n = base_note + 12 * (self.layout_model.base_octave + self.octave_offset)
@@ -498,6 +600,117 @@ class KeyboardWidget(QWidget):
         if new_off != self.octave_offset:
             self.octave_offset = new_off
             self._update_oct_label()
+
+    # --- Wheels helpers ---
+    def _send_mod_cc(self, value: int):
+        try:
+            self.midi.cc(1, int(value), self.midi_channel)
+        except Exception:
+            pass
+
+    def _send_pitch_bend(self, value: int):
+        try:
+            self.midi.pitch_bend(int(value), self.midi_channel)
+        except Exception:
+            pass
+
+    def _center_pitch(self):
+        """Center the pitch wheel at release (0)."""
+        try:
+            if self.pitch_slider.value() != 0:
+                self.pitch_slider.setValue(0)
+        except Exception:
+            pass
+
+    def _animate_pitch_to_center(self):
+        """Animate the pitch slider smoothly back to center (0) on release."""
+        try:
+            cur = int(self.pitch_slider.value())
+        except Exception:
+            cur = 0
+        if cur == 0:
+            return
+        # Stop any existing animation
+        self._stop_pitch_anim()
+        anim = QPropertyAnimation(self.pitch_slider, b"value", self)
+        anim.setStartValue(cur)
+        anim.setEndValue(0)
+        anim.setDuration(180)  # ms; tweak if needed
+        try:
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+        except Exception:
+            pass
+        # Keep a reference so GC doesn't stop it
+        self._pitch_anim = anim
+        anim.start()
+
+    def _stop_pitch_anim(self):
+        try:
+            if self._pitch_anim is not None:
+                self._pitch_anim.stop()
+        except Exception:
+            pass
+
+    def set_show_mod_wheel(self, enabled: bool):
+        self.show_mod_wheel = bool(enabled)
+        try:
+            self.mod_slider.setVisible(self.show_mod_wheel)
+            if hasattr(self, 'mod_lbl'):
+                self.mod_lbl.setVisible(self.show_mod_wheel)
+            # Show panel if either wheel is visible
+            self.left_panel.setVisible(self.show_mod_wheel or self.show_pitch_wheel)
+            self._update_left_panel_width()
+            self._sync_controls_width()
+        except Exception:
+            pass
+
+    def set_show_pitch_wheel(self, enabled: bool):
+        self.show_pitch_wheel = bool(enabled)
+        try:
+            self.pitch_slider.setVisible(self.show_pitch_wheel)
+            if hasattr(self, 'pitch_lbl'):
+                self.pitch_lbl.setVisible(self.show_pitch_wheel)
+            # Show panel if either wheel is visible
+            self.left_panel.setVisible(self.show_mod_wheel or self.show_pitch_wheel)
+            self._update_left_panel_width()
+            self._sync_controls_width()
+        except Exception:
+            pass
+
+    def _update_left_panel_width(self):
+        """Adjust left panel width depending on how many wheels are visible."""
+        try:
+            both = self.show_mod_wheel and self.show_pitch_wheel
+            one = (self.show_mod_wheel or self.show_pitch_wheel) and not both
+            if both:
+                self.left_panel.setFixedWidth(80)
+            elif one:
+                self.left_panel.setFixedWidth(44)
+            else:
+                # hidden; width doesn't matter
+                self.left_panel.setFixedWidth(44)
+        except Exception:
+            pass
+
+    def _sync_controls_width(self):
+        """Match compact controls bar width to current piano + left panel width."""
+        try:
+            base = int(self.piano_container.width())
+        except Exception:
+            base = None
+        if base is None:
+            return
+        try:
+            extra = int(self.left_panel.width()) if self.left_panel.isVisible() else 0
+        except Exception:
+            extra = 0
+        total = base + extra
+        if hasattr(self, 'controls_widget') and self.controls_widget is not None:
+            try:
+                self.controls_widget.setFixedWidth(int(total))
+                self.controls_widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            except Exception:
+                pass
 
     # --- Sizing helpers ---
     def sizeHint(self) -> QSize:  # type: ignore[override]
