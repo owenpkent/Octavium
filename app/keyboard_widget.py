@@ -1,5 +1,7 @@
-from PySide6.QtWidgets import QWidget, QPushButton, QGridLayout, QHBoxLayout, QVBoxLayout, QLabel, QSlider, QApplication, QSizePolicy
-from PySide6.QtCore import Qt, QSize, QEvent, QPropertyAnimation, QEasingCurve
+from PySide6.QtWidgets import QWidget, QPushButton, QGridLayout, QHBoxLayout, QVBoxLayout, QLabel, QSlider, QApplication, QSizePolicy, QCheckBox
+from PySide6.QtCore import Qt, QSize, QEvent, QPropertyAnimation, QEasingCurve, QRectF
+from PySide6.QtGui import QPainter, QColor
+import random
 from .models import Layout, KeyDef
 from .midi_io import MidiOut
 from .scale import quantize
@@ -35,6 +37,196 @@ class ClickAnywhereSlider(QSlider):
         super().mousePressEvent(event)
 
 
+class DragReferenceSlider(QSlider):
+    """Slider that does not jump to click. Clicking sets a reference; dragging adjusts value relatively.
+    Works for both orientations, used here for vertical Mod/Pitch wheels.
+    """
+    def __init__(self, orientation=Qt.Vertical, parent=None):
+        super().__init__(orientation, parent)
+        self._drag_active = False
+        self._press_pos = None
+        self._press_value = None
+
+    def mousePressEvent(self, event):  # type: ignore[override]
+        if event.button() != Qt.LeftButton:
+            return super().mousePressEvent(event)
+        self._drag_active = True
+        self._press_pos = event.position()
+        try:
+            self._press_value = int(self.value())
+        except Exception:
+            self._press_value = 0
+        try:
+            self.setSliderDown(True)
+        except Exception:
+            pass
+
+    def mouseMoveEvent(self, event):  # type: ignore[override]
+        if not self._drag_active or self._press_pos is None or self._press_value is None:
+            return super().mouseMoveEvent(event)
+        rng = max(1, int(self.maximum()) - int(self.minimum()))
+        # Determine pixel span
+        if self.orientation() == Qt.Vertical:
+            span = max(1.0, self.height() - 8.0)
+            delta_px = self._press_pos.y() - event.position().y()  # up increases value
+        else:
+            span = max(1.0, self.width() - 8.0)
+            delta_px = event.position().x() - self._press_pos.x()
+        # Map pixels to value delta; 1 full span = full range
+        dv = int(round((delta_px / span) * rng))
+        new_val = int(self._press_value) + dv
+        new_val = max(int(self.minimum()), min(int(self.maximum()), new_val))
+        self.setValue(new_val)
+
+    def mouseReleaseEvent(self, event):  # type: ignore[override]
+        if self._drag_active:
+            self._drag_active = False
+            self._press_pos = None
+            self._press_value = None
+            try:
+                self.setSliderDown(False)
+            except Exception:
+                pass
+        return super().mouseReleaseEvent(event)
+
+class RangeSlider(QWidget):
+    """Minimal horizontal range slider with two handles (low/high). Values are ints.
+    - Click-and-drag a handle to resize the range.
+    - Click-and-drag inside the highlighted range to move the whole range.
+    - Clicking elsewhere does nothing (no jump)."""
+    def __init__(self, minimum=1, maximum=127, low=64, high=100, parent=None):
+        super().__init__(parent)
+        self._min = int(minimum)
+        self._max = int(maximum)
+        self._low = int(max(self._min, min(low, maximum)))
+        self._high = int(max(self._min, min(high, maximum)))
+        if self._low > self._high:
+            self._low, self._high = self._high, self._low
+        self._dragging = None  # 'low' | 'high' | 'range' | None
+        self._press_v = None
+        self._init_low = None
+        self._init_high = None
+        self.setMinimumHeight(22)
+        self.setMouseTracking(True)
+
+    def setRange(self, minimum: int, maximum: int):
+        self._min = int(minimum)
+        self._max = int(maximum)
+        self._low = max(self._min, min(self._low, self._max))
+        self._high = max(self._min, min(self._high, self._max))
+        self.update()
+
+    def setValues(self, low: int, high: int):
+        low, high = int(low), int(high)
+        if low > high:
+            low, high = high, low
+        self._low = max(self._min, min(low, self._max))
+        self._high = max(self._min, min(high, self._max))
+        self.update()
+
+    def values(self):
+        return int(self._low), int(self._high)
+
+    def _pos_to_value(self, x: float) -> int:
+        w = max(1, self.width() - 10)
+        frac = min(1.0, max(0.0, (x - 5) / w))
+        return int(round(self._min + frac * (self._max - self._min)))
+
+    def _value_to_pos(self, v: int) -> float:
+        rng = max(1, self._max - self._min)
+        frac = (int(v) - self._min) / rng
+        return 5 + frac * (self.width() - 10)
+
+    def paintEvent(self, _):  # type: ignore[override]
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        # Groove (thicker)
+        groove_h = 8
+        groove = QRectF(5, self.height() / 2 - groove_h/2, max(1, self.width() - 10), groove_h)
+        p.setBrush(QColor('#3a3f46'))
+        p.setPen(QColor('#2a2f35'))
+        p.drawRoundedRect(groove, 3, 3)
+        # Range selection
+        x1 = self._value_to_pos(self._low)
+        x2 = self._value_to_pos(self._high)
+        sel = QRectF(min(x1, x2), groove.top(), max(2.0, abs(x2 - x1)), groove_h)
+        p.setBrush(QColor('#61b3ff'))
+        p.setPen(QColor('#2f82e6'))
+        p.drawRoundedRect(sel, 3, 3)
+        # Handles
+        handle_w, handle_h = 12, 20
+        for xv in (x1, x2):
+            handle = QRectF(xv - handle_w/2, self.height() / 2 - handle_h/2, handle_w, handle_h)
+            p.setBrush(QColor('#eaeaea'))
+            p.setPen(QColor('#5a5f66'))
+            p.drawRoundedRect(handle, 3, 3)
+        p.end()
+
+    def _handle_rects(self):
+        """Return (low_rect, high_rect) in widget coordinates."""
+        handle_w, handle_h = 12, 20
+        x1 = self._value_to_pos(self._low)
+        x2 = self._value_to_pos(self._high)
+        low_r = QRectF(x1 - handle_w/2, self.height() / 2 - handle_h/2, handle_w, handle_h)
+        high_r = QRectF(x2 - handle_w/2, self.height() / 2 - handle_h/2, handle_w, handle_h)
+        return low_r, high_r
+
+    def mousePressEvent(self, ev):  # type: ignore[override]
+        if ev.button() != Qt.LeftButton:
+            return super().mousePressEvent(ev)
+        posx = ev.position().x()
+        v = self._pos_to_value(posx)
+        low_r, high_r = self._handle_rects()
+        # If click is on a handle: start resizing that edge without snapping
+        if low_r.adjusted(-3, -3, 3, 3).contains(ev.position()):
+            self._dragging = 'low'
+            self._press_v = v
+        elif high_r.adjusted(-3, -3, 3, 3).contains(ev.position()):
+            self._dragging = 'high'
+            self._press_v = v
+        else:
+            # If click is inside the selected range: drag the whole range
+            x1 = self._value_to_pos(self._low)
+            x2 = self._value_to_pos(self._high)
+            sel_left, sel_right = min(x1, x2), max(x1, x2)
+            if sel_left <= posx <= sel_right:
+                self._dragging = 'range'
+                self._press_v = v
+                self._init_low, self._init_high = self._low, self._high
+            else:
+                self._dragging = None
+        self.update()
+
+    def mouseMoveEvent(self, ev):  # type: ignore[override]
+        if self._dragging is None:
+            return super().mouseMoveEvent(ev)
+        v = self._pos_to_value(ev.position().x())
+        if self._dragging == 'low':
+            self._low = max(self._min, min(v, self._high))
+        elif self._dragging == 'high':
+            self._high = min(self._max, max(v, self._low))
+        elif self._dragging == 'range' and self._press_v is not None and self._init_low is not None and self._init_high is not None:
+            width = self._init_high - self._init_low
+            delta = v - self._press_v
+            new_low = self._init_low + delta
+            new_high = new_low + width
+            # Clamp to bounds while preserving width
+            if new_low < self._min:
+                new_low = self._min
+                new_high = new_low + width
+            if new_high > self._max:
+                new_high = self._max
+                new_low = new_high - width
+            self._low, self._high = int(new_low), int(new_high)
+        self.update()
+
+    def mouseReleaseEvent(self, ev):  # type: ignore[override]
+        self._dragging = None
+        self._press_v = None
+        self._init_low = None
+        self._init_high = None
+        return super().mouseReleaseEvent(ev)
+
 class KeyboardWidget(QWidget):
     def __init__(self, layout_model: Layout, midi_out: MidiOut, title: str = "", show_header: bool = True, compact_controls: bool = True):
         super().__init__()
@@ -45,7 +237,7 @@ class KeyboardWidget(QWidget):
         self.octave_offset = 0
         self.sustain = False
         self.latch = False
-        self.visual_hold_on_sustain = True  # whether sustained notes keep visual down state
+        self.visual_hold_on_sustain = False  # whether sustained notes keep visual down state
         self.vel_curve = "linear"
         self.active_notes: set[tuple[int,int]] = set()
         # Polyphony control
@@ -55,11 +247,11 @@ class KeyboardWidget(QWidget):
         self.dragging = False
         self.last_drag_key = None
         self.last_drag_button: QPushButton | None = None
+        self._last_drag_note_base: int | None = None  # Track last dragged raw base note (key pitch class)
         self.key_buttons = {}  # Map from note to button
         self.setWindowTitle(title or layout_model.name)
         self.setMouseTracking(True)  # Enable mouse tracking for drag
-        # Capture mouse moves globally so we see events while a button has the grab
-        QApplication.instance().installEventFilter(self)
+        # Event filter will be installed on the piano container after it is created
         root = QVBoxLayout(self)
         # Do not allow vertical expansion; we'll size exactly to header + keys
         try:
@@ -158,15 +350,24 @@ class KeyboardWidget(QWidget):
         )
         
         self.vel_label = QLabel("Vel curve: linear")
-        self.vel_slider = QSlider(Qt.Horizontal)
-        self.vel_slider.setMinimum(20)
+        # Velocity controls: single slider and randomized range
+        self.vel_random_chk = QCheckBox("Randomized Velocity")
+        self.vel_random_chk.setToolTip("Randomize velocity within a range")
+        self.vel_slider = QSlider(Qt.Horizontal)  # single value slider
+        self.vel_slider.setMinimum(1)
         self.vel_slider.setMaximum(127)
         self.vel_slider.setValue(100)
+        self.vel_range = RangeSlider(1, 127, low=80, high=110, parent=self)
+        self.vel_range.setVisible(False)
+        self.vel_random_chk.toggled.connect(self._toggle_vel_random)
         # Keep header small so small keyboards can shrink
         try:
-            self.vel_slider.setFixedWidth(160)
-            self.vel_slider.setFixedHeight(12)
+            self.vel_slider.setFixedWidth(200)
+            self.vel_range.setFixedWidth(200)
+            self.vel_slider.setFixedHeight(16)
+            self.vel_range.setFixedHeight(20)
             self.vel_slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            self.vel_range.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             self.oct_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             self.vel_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             self.sustain_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
@@ -197,7 +398,9 @@ class KeyboardWidget(QWidget):
         header.addWidget(self.sustain_btn)
         header.addWidget(self.latch_btn)
         header.addWidget(self.all_off_btn)
+        header.addWidget(self.vel_random_chk)
         header.addWidget(self.vel_slider)
+        header.addWidget(self.vel_range)
         # Apply unified modern styles to header buttons
         try:
             self._apply_header_button_styles()
@@ -241,6 +444,9 @@ class KeyboardWidget(QWidget):
             controls.addWidget(self.sustain_btn)
             controls.addWidget(self.latch_btn)
             controls.addWidget(self.all_off_btn)
+            controls.addWidget(self.vel_random_chk)
+            controls.addWidget(self.vel_slider)
+            controls.addWidget(self.vel_range)
             controls.addStretch()
             root.addWidget(controls_widget)
 
@@ -266,7 +472,7 @@ class KeyboardWidget(QWidget):
         lp_layout.setContentsMargins(6, 2, 6, 2)
         lp_layout.setSpacing(12)
         # Pitch wheel (center detent)
-        self.pitch_slider = ClickAnywhereSlider(Qt.Vertical)
+        self.pitch_slider = DragReferenceSlider(Qt.Vertical)
         self.pitch_slider.setMinimum(-8192)
         self.pitch_slider.setMaximum(8191)
         self.pitch_slider.setValue(0)
@@ -280,7 +486,7 @@ class KeyboardWidget(QWidget):
         except Exception:
             pass
         # Mod wheel (CC1)
-        self.mod_slider = ClickAnywhereSlider(Qt.Vertical)
+        self.mod_slider = DragReferenceSlider(Qt.Vertical)
         self.mod_slider.setMinimum(0)
         self.mod_slider.setMaximum(127)
         self.mod_slider.setValue(0)
@@ -288,7 +494,7 @@ class KeyboardWidget(QWidget):
         self.mod_slider.valueChanged.connect(lambda v: self._send_mod_cc(v))
         try:
             for s in (self.pitch_slider, self.mod_slider):
-                s.setFixedWidth(22)
+                s.setFixedWidth(28)
         except Exception:
             pass
         # Labels
@@ -340,6 +546,11 @@ class KeyboardWidget(QWidget):
             pass
         piano_container.setMouseTracking(True)  # Enable mouse tracking on container
         self.piano_container = piano_container  # Store reference for mouse events
+        # Scope the event filter to the piano container only (lower overhead than app-wide)
+        try:
+            self.piano_container.installEventFilter(self)
+        except Exception:
+            pass
         
         # Create white keys first (they go in the background)
         white_keys = self.layout_model.rows[0].keys
@@ -371,7 +582,7 @@ class KeyboardWidget(QWidget):
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                             stop:0 #ffffff, stop:0.5 #f9f9f9, stop:1 #f0f0f0);
                     }}
-                    QPushButton:pressed {{
+                    QPushButton[active="true"] {{
                         /* Fill entire key with activation blue */
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                             stop:0 #6bb8ff, stop:1 #2f82e6);
@@ -434,7 +645,7 @@ class KeyboardWidget(QWidget):
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                             stop:0 #3b3b3b, stop:0.5 #191919, stop:1 #060606);
                     }
-                    QPushButton:pressed {
+                    QPushButton[active="true"] {
                         /* Fill entire key with activation blue */
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                             stop:0 #4aa3ff, stop:1 #2f82e6);
@@ -443,7 +654,7 @@ class KeyboardWidget(QWidget):
                         border-right: 1px solid #2f82e6;
                         border-bottom: 2px solid #0a0a0a;
                     }
-                    QPushButton[held=\"true\"] {
+                    QPushButton[held="true"] {
                         /* Slightly darker blue for held */
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                             stop:0 #3f9cff, stop:1 #2b7ade);
@@ -453,7 +664,7 @@ class KeyboardWidget(QWidget):
                         border-bottom: 2px solid #0b0b0b;
                     }
                     /* Keep held look even when hovered */
-                    QPushButton[held=\"true\"]:hover {
+                    QPushButton[held="true"]:hover {
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                             stop:0 #3f9cff, stop:1 #2b7ade);
                         border-top: 1px solid #2f82e6;
@@ -734,14 +945,31 @@ class KeyboardWidget(QWidget):
         if btn is None:
             return
         try:
-            btn.setDown(down)
-            btn.setProperty('held', 'true' if held else 'false')
-            st = btn.style()
-            if st is not None:
-                st.unpolish(btn)
-                st.polish(btn)
+            # Only touch properties when they actually change to avoid heavy restyles
+            # Use dynamic properties for visuals instead of the built-in :pressed state.
+            # 1) Active (pressed) state via [active="true"]
+            prev_active = btn.property('active')
+            new_active = 'true' if down else 'false'
+            # Do NOT sync Qt's internal pressed state for keys; rely solely on dynamic properties
+            if prev_active != new_active:
+                btn.setProperty('active', new_active)
+                st = btn.style()
+                if st is not None:
+                    st.unpolish(btn)
+                    st.polish(btn)
+
+            # 2) Held dynamic property (used by stylesheet selector [held="true"]) 
+            prev_held = btn.property('held')
+            new_held = 'true' if held else 'false'
+            if prev_held != new_held:
+                btn.setProperty('held', new_held)
+                st = btn.style()
+                if st is not None:
+                    st.unpolish(btn)
+                    st.polish(btn)
+
+            # Request a paint; avoid synchronous repaint to keep UI responsive
             btn.update()
-            btn.repaint()  # Force repaint after style changes
         except Exception:
             pass
 
@@ -838,7 +1066,7 @@ class KeyboardWidget(QWidget):
                     self.active_notes.discard((old_note, old_ch))
                     # Clear its visual regardless of sustain
                     self._apply_note_visual(old_base, False, False)
-        vel = velocity_curve(int(self.vel_slider.value() * (key.velocity / 127)), self.vel_curve)
+        vel = self._compute_velocity(int(key.velocity))
         self.midi.note_on(note, vel, ch)
         self.active_notes.add((note, ch))
         self._voice_order.append((note, ch, base_note))
@@ -849,11 +1077,19 @@ class KeyboardWidget(QWidget):
         if not getattr(self, 'latch', False):
             self.dragging = True
             self.last_drag_key = key
+            self._last_drag_note_base = key.note
             # Track and visually press the originating button
             sender = self.sender()
             if isinstance(sender, QPushButton):
                 self.last_drag_button = sender
-                self.last_drag_button.setDown(True)
+                self._apply_btn_visual(self.last_drag_button, True, False)
+                # From the outset of a drag, ensure only this button is active
+                self._clear_other_actives(self.last_drag_button)
+            # Capture the mouse so we keep receiving move/release events even if cursor leaves
+            try:
+                self.piano_container.grabMouse()
+            except Exception:
+                pass
 
     def on_key_release(self, key: KeyDef):
         base_note = key.note
@@ -880,12 +1116,18 @@ class KeyboardWidget(QWidget):
             # Also ensure no other strays
             self._sync_visuals_if_needed()
         else:
-            # Sustaining: optionally keep or clear visual based on preference
-            if not getattr(self, 'visual_hold_on_sustain', True):
-                self._apply_note_visual(base_note, False, False)
-            else:
-                # Qt auto-releases the button visually on mouse release; re-press it
-                self._apply_note_visual(base_note, True, True)
+            # Sustaining: always clear visual on release; audio remains sustained
+            self._apply_note_visual(base_note, False, False)
+            # Also ensure no other key remains visually active due to sustain
+            self._clear_other_actives(None)
+        # Ensure drag state is stopped on a normal click release (not just via eventFilter)
+        if not getattr(self, 'latch', False):
+            self.dragging = False
+            self.last_drag_key = None
+            self._last_drag_note_base = None
+            # Clear any lingering reference button so drag logic can't re-press it on move
+            if self.last_drag_button is not None:
+                self.last_drag_button = None
         # Do NOT clear dragging here. We only stop dragging on actual mouse button
         # release handled by eventFilter/mouseReleaseEvent so that drag can traverse
         # across multiple keys smoothly.
@@ -905,97 +1147,132 @@ class KeyboardWidget(QWidget):
                     gp = event.globalPos()
                 container_pos = self.piano_container.mapFromGlobal(gp)
                 widget_under = self.piano_container.childAt(container_pos)
+                # If we're no longer over the previously pressed button, clear its pressed visual immediately
+                if self.last_drag_button is not None and widget_under is not self.last_drag_button:
+                    self._apply_btn_visual(self.last_drag_button, False, False)
                 # Only suppress switching if the cursor is still within the original button
                 # AND there isn't a different key under the cursor. This allows switching to
-                # an overlapping black key when actually hovered.
-                if isinstance(self.last_drag_button, QPushButton):
-                    try:
-                        if self.last_drag_button.geometry().contains(container_pos):
-                            if not (isinstance(widget_under, QPushButton) and widget_under is not self.last_drag_button):
-                                self.last_drag_button.setDown(True)
-                                return False
-                    except Exception:
-                        pass
+                # Only keep the last key visually down if the cursor is directly over that same button
+                if isinstance(widget_under, QPushButton) and widget_under is self.last_drag_button:
+                    self._apply_btn_visual(self.last_drag_button, True, False)
+                    # Ensure no other keys remain visually active
+                    self._clear_other_actives(self.last_drag_button)
+                    return False
                 if isinstance(widget_under, QPushButton) and hasattr(widget_under, 'key_note'):
-                    current_note = self.effective_note(widget_under.key_note)
-                    if not self.last_drag_key or current_note != self.effective_note(self.last_drag_key.note):
+                    base = widget_under.key_note
+                    current_note = self.effective_note(base)
+                    prev_eff = self.effective_note(self._last_drag_note_base) if self._last_drag_note_base is not None else None
+                    if prev_eff is None or current_note != prev_eff:
                         # Stop previous
-                        if self.last_drag_key and not self.sustain and not getattr(self, 'latch', False):
-                            prev_note = self.effective_note(self.last_drag_key.note)
+                        if self._last_drag_note_base is not None and not self.sustain and not getattr(self, 'latch', False):
+                            prev_note = prev_eff  # already computed
                             ch = self.midi_channel
                             self.midi.note_off(prev_note, ch)
                             self.active_notes.discard((prev_note, ch))
-                        # Update previous button visual
+                        # Update previous button visual (always clear during drag)
                         if self.last_drag_button is not None and self.last_drag_button is not widget_under:
-                            if not (self.sustain and getattr(self, 'visual_hold_on_sustain', True)) and not getattr(self, 'latch', False):
-                                self._apply_btn_visual(self.last_drag_button, False, False)
+                            self._apply_btn_visual(self.last_drag_button, False, False)
                         # Start new
-                        current_key = KeyDef(
-                            label="",
-                            note=widget_under.key_note,
-                            color="black" if current_note % 12 in [1, 3, 6, 8, 10] else "white",
-                            width=1.0,
-                            height=1.0,
-                            velocity=100,
-                            channel=0,
-                        )
-                        vel = velocity_curve(int(self.vel_slider.value() * (current_key.velocity / 127)), self.vel_curve)
+                        vel = self._compute_velocity(100)
                         ch = self.midi_channel
                         if not getattr(self, 'latch', False):
                             self.midi.note_on(current_note, vel, ch)
                             self.active_notes.add((current_note, ch))
-                        self.last_drag_key = current_key
-                        # Update current button visual and reference
-                        widget_under.setDown(True)
+                        # Update current button visual and references
+                        self._apply_btn_visual(widget_under, True, False)
                         self.last_drag_button = widget_under
+                        self._last_drag_note_base = base
+                        self.last_drag_key = None  # no heavy KeyDef allocation
+                        # Ensure no other keys remain visually active
+                        self._clear_other_actives(self.last_drag_button)
                 else:
                     # Not over any key: release previous note and clear visual, keep dragging
-                    if self.last_drag_key and not self.sustain and not getattr(self, 'latch', False):
-                        prev_note = self.effective_note(self.last_drag_key.note)
+                    if self._last_drag_note_base is not None and not self.sustain and not getattr(self, 'latch', False):
+                        prev_note = self.effective_note(self._last_drag_note_base)
                         ch = self.midi_channel
                         self.midi.note_off(prev_note, ch)
                         self.active_notes.discard((prev_note, ch))
                     if self.last_drag_button is not None:
-                        if not (self.sustain and getattr(self, 'visual_hold_on_sustain', True)) and not getattr(self, 'latch', False):
-                            self._apply_btn_visual(self.last_drag_button, False, False)
+                        # Always clear visual during drag when not over any key
+                        self._apply_btn_visual(self.last_drag_button, False, False)
+                    self._last_drag_note_base = None
                     self.last_drag_key = None
                     self.last_drag_button = None
+                    # Ensure no keys remain visually active when off any key
+                    self._clear_other_actives(None)
                 return False
             # Ensure release anywhere stops dragging and releases note
             if event.type() == QEvent.MouseButtonRelease:
                 self.dragging = False
-                if self.last_drag_key and not self.sustain and not getattr(self, 'latch', False):
-                    note = self.effective_note(self.last_drag_key.note)
+                if self._last_drag_note_base is not None and not self.sustain and not getattr(self, 'latch', False):
+                    note = self.effective_note(self._last_drag_note_base)
                     ch = self.midi_channel
                     self.midi.note_off(note, ch)
                     self.active_notes.discard((note, ch))
-                # Clear visuals unless sustain visual hold or latch
+                # On drag-release: only latch keeps visuals held; sustain clears visuals
                 if self.last_drag_button is not None:
-                    if not (self.sustain and getattr(self, 'visual_hold_on_sustain', True)) and not getattr(self, 'latch', False):
+                    if getattr(self, 'latch', False):
+                        self._apply_btn_visual(self.last_drag_button, True, True)
+                    else:
                         self._apply_btn_visual(self.last_drag_button, False, False)
+                self._last_drag_note_base = None
                 self.last_drag_key = None
                 self.last_drag_button = None
                 # Normalize visuals in case of missed transitions
                 self._sync_visuals_if_needed()
+                # Release mouse capture
+                try:
+                    self.piano_container.releaseMouse()
+                except Exception:
+                    pass
                 return False
         return super().eventFilter(obj, event)
+
+    # ---- Velocity helpers ----
+    def _toggle_vel_random(self, checked: bool):
+        """Switch between fixed velocity slider and range slider."""
+        random_mode = bool(checked)
+        try:
+            self.vel_slider.setVisible(not random_mode)
+            self.vel_range.setVisible(random_mode)
+        except Exception:
+            pass
+
+    def _compute_velocity(self, base: int) -> int:
+        """Compute outgoing velocity from UI.
+        base is the key's default velocity (e.g., KeyDef.velocity or 100 during drag).
+        """
+        if getattr(self, 'vel_random_chk', None) and self.vel_random_chk.isChecked():
+            low, high = self.vel_range.values()
+            raw = random.randint(min(low, high), max(low, high))
+        else:
+            raw = int(self.vel_slider.value())
+        # Apply per-key scaling then curve
+        scaled = int(raw * (base / 127))
+        return max(1, min(127, velocity_curve(scaled, self.vel_curve)))
 
     def mouseReleaseEvent(self, event):
         """Handle mouse release to stop dragging"""
         if self.dragging:
             self.dragging = False
-            if self.last_drag_key and not self.sustain and not getattr(self, 'latch', False):
-                note = self.effective_note(self.last_drag_key.note)
+            if self._last_drag_note_base is not None and not self.sustain and not getattr(self, 'latch', False):
+                note = self.effective_note(self._last_drag_note_base)
                 ch = self.midi_channel
                 self.midi.note_off(note, ch)
                 self.active_notes.discard((note, ch))
             # Clear visuals
             if self.last_drag_button is not None:
-                if not (self.sustain and getattr(self, 'visual_hold_on_sustain', True)) and not getattr(self, 'latch', False):
+                if not getattr(self, 'latch', False):
+                    # Always clear visuals on release; sustain should not keep visuals held
                     self._apply_btn_visual(self.last_drag_button, False, False)
+            self._last_drag_note_base = None
             self.last_drag_key = None
             self.last_drag_button = None
             self._sync_visuals_if_needed()
+            try:
+                self.piano_container.releaseMouse()
+            except Exception:
+                pass
 
     def set_sustain(self, checked: bool):
         """Set sustain state and synchronize UI/notes."""
@@ -1067,6 +1344,20 @@ class KeyboardWidget(QWidget):
         except Exception:
             pass
 
+    def _clear_other_actives(self, except_btn: QPushButton | None):
+        """Ensure only except_btn (if any) is visually active. Clear all others."""
+        try:
+            for b in self.key_buttons.values():
+                if b is except_btn:
+                    # Ensure it stays active
+                    if b.property('active') != 'true':
+                        self._apply_btn_visual(b, True, False)
+                    continue
+                if b.property('active') == 'true':
+                    self._apply_btn_visual(b, False, False)
+        except Exception:
+            pass
+
     # ---- Polyphony setters ----
     def set_polyphony_enabled(self, enabled: bool):
         self.polyphony_enabled = bool(enabled)
@@ -1112,10 +1403,15 @@ class KeyboardWidget(QWidget):
         """Clear all active notes, pressed visuals, and any drag state."""
         self.all_notes_off()
         if self.last_drag_button is not None:
-            self.last_drag_button.setDown(False)
+            self._apply_btn_visual(self.last_drag_button, False, False)
         self.last_drag_button = None
         self.last_drag_key = None
+        self._last_drag_note_base = None
         self.dragging = False
+        try:
+            self.piano_container.releaseMouse()
+        except Exception:
+            pass
 
     def set_channel(self, channel_1_based: int):
         """Set MIDI channel (1-16). Sends All Notes Off and updates title."""

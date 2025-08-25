@@ -90,15 +90,50 @@ class MainWindow(QMainWindow):
             ))
         ))
         view_menu.addAction(show_pitch)
+        # Visual hold preference (keep visuals pressed during sustain): moved here; default unchecked
+        visual_hold = QAction("Hold Visuals During Sustain", self)
+        visual_hold.setCheckable(True)
+        # default unchecked unless previously set
+        visual_hold.setChecked(bool(self.menu_actions.get('visual_hold_checked', False)))
+        def _toggle_visual_hold(checked: bool):
+            try:
+                self.keyboard.visual_hold_on_sustain = checked
+                # Persist the checked state
+                self.menu_actions['visual_hold_checked'] = checked
+                # Re-sync visuals when toggled, without touching notes
+                try:
+                    st = self.keyboard.style()
+                    for btn in self.keyboard.key_buttons.values():
+                        st.unpolish(btn)
+                        st.polish(btn)
+                        btn.update()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        visual_hold.triggered.connect(_toggle_visual_hold)
+        view_menu.addAction(visual_hold)
         # Persist
         self.menu_actions['show_mod'] = show_mod.isChecked()
         self.menu_actions['show_pitch'] = show_pitch.isChecked()
         self.menu_actions['view_show_mod'] = show_mod
         self.menu_actions['view_show_pitch'] = show_pitch
+        self.menu_actions['visual_hold'] = visual_hold
         # Apply current selections
         try:
             self.keyboard.set_show_mod_wheel(show_mod.isChecked())
             self.keyboard.set_show_pitch_wheel(show_pitch.isChecked())
+            # Apply visual hold default (unchecked) or previous
+            self.keyboard.visual_hold_on_sustain = visual_hold.isChecked()
+            # Ensure styles reflect any change
+            try:
+                st = self.keyboard.style()
+                for btn in self.keyboard.key_buttons.values():
+                    st.unpolish(btn)
+                    st.polish(btn)
+                    btn.update()
+            except Exception:
+                pass
             # Ensure window reflects current selection after menus are built
             self._resize_for_layout(self.keyboard.layout_model)
             QTimer.singleShot(0, lambda: (
@@ -129,34 +164,6 @@ class MainWindow(QMainWindow):
         select_port = QAction("Select Output Port...", self)
         select_port.triggered.connect(self.select_midi_port)
         midi_menu.addAction(select_port)
-        # Visual hold preference (keep visual pressed while sustain is on)
-        visual_hold = QAction("Hold Visuals During Sustain", self)
-        visual_hold.setCheckable(True)
-        visual_hold.setChecked(True)
-        def _toggle_visual_hold(checked: bool):
-            try:
-                self.keyboard.visual_hold_on_sustain = checked
-                # Re-sync visuals when toggled, without touching notes
-                try:
-                    st = self.keyboard.style()
-                    for btn in self.keyboard.key_buttons.values():
-                        st.unpolish(btn)
-                        st.polish(btn)
-                        btn.update()
-                except Exception:
-                    pass
-            except Exception:
-                pass
-        visual_hold.triggered.connect(_toggle_visual_hold)
-        midi_menu.addAction(visual_hold)
-        # Keep references for persistence across keyboard rebuilds
-        self.menu_actions = getattr(self, 'menu_actions', {})
-        self.menu_actions['visual_hold'] = visual_hold
-        # Initialize keyboard flags from menu
-        try:
-            self.keyboard.visual_hold_on_sustain = visual_hold.isChecked()
-        except Exception:
-            pass
 
         # Voices (polyphony) menu: Unlimited or 1-8 (exclusive)
         voices_menu = menubar.addMenu("&Voices")
