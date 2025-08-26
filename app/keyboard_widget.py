@@ -871,10 +871,40 @@ class KeyboardWidget(QWidget):
 
     def change_octave(self, delta: int):
         # Clamp to a reasonable range to avoid running off MIDI limits
-        new_off = max(-5, min(5, self.octave_offset + int(delta)))
+        delta = int(delta)
+        new_off = max(-5, min(5, self.octave_offset + delta))
         if new_off != self.octave_offset:
+            old_off = self.octave_offset
             self.octave_offset = new_off
             self._update_oct_label()
+            # If latch is engaged, move visuals with the octave shift, but DO NOT change sounding notes
+            if getattr(self, 'latch', False):
+                oct_semitones = (self.octave_offset - old_off) * 12
+                if oct_semitones != 0:
+                    # Shift held visuals to corresponding keys if available
+                    try:
+                        # Collect current held buttons
+                        held_bases = []
+                        for btn in self.key_buttons.values():
+                            try:
+                                if btn.property('held') == 'true':
+                                    if hasattr(btn, 'key_note'):
+                                        held_bases.append(int(btn.key_note))
+                            except Exception:
+                                pass
+                        # Clear all first to avoid duplicates
+                        for btn in self.key_buttons.values():
+                            self._apply_btn_visual(btn, False, False)
+                        # Re-apply held to shifted keys
+                        for base in held_bases:
+                            # Move visuals opposite to the octave transposition to keep output notes unchanged
+                            new_base = base - oct_semitones
+                            if new_base in self.key_buttons:
+                                self._apply_btn_visual(self.key_buttons[new_base], True, True)
+                        # Final sync to ensure no strays
+                        self._sync_visuals_if_needed()
+                    except Exception:
+                        pass
 
     # --- Wheels helpers ---
     def _send_mod_cc(self, value: int):
