@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QWidget, QPushButton, QGridLayout, QHBoxLayout, QVBoxLayout, QLabel, QSlider, QApplication, QSizePolicy, QCheckBox
-from PySide6.QtCore import Qt, QSize, QEvent, QPropertyAnimation, QEasingCurve, QRectF
+from PySide6.QtCore import Qt, QSize, QEvent, QPropertyAnimation, QEasingCurve, QRectF, QTimer
 from PySide6.QtGui import QPainter, QColor
 import random
 from .models import Layout, KeyDef
@@ -353,6 +353,24 @@ class KeyboardWidget(QWidget):
         # Velocity controls: single slider and randomized range
         self.vel_random_chk = QCheckBox("Randomized Velocity")
         self.vel_random_chk.setToolTip("Randomize velocity within a range")
+        # Style checkbox to use the same blue as sliders
+        try:
+            self.vel_random_chk.setStyleSheet(
+                "QCheckBox { color: #ddd; spacing: 4px; }"
+                "QCheckBox::indicator {"
+                "  width: 14px; height: 14px;"
+                "  border: 1px solid #2a2f35;"
+                "  background: #2b2f36;"
+                "  border-radius: 3px;"
+                "}"
+                "QCheckBox::indicator:hover { border: 1px solid #61b3ff; }"
+                "QCheckBox::indicator:checked {"
+                "  background: #61b3ff;"
+                "  border: 1px solid #2f82e6;"
+                "}"
+            )
+        except Exception:
+            pass
         self.vel_slider = QSlider(Qt.Horizontal)  # single value slider
         self.vel_slider.setMinimum(1)
         self.vel_slider.setMaximum(127)
@@ -378,14 +396,59 @@ class KeyboardWidget(QWidget):
             self.all_off_btn.setFixedHeight(18)
             self.oct_label.setFixedHeight(16)
             self.vel_label.setFixedHeight(16)
-            # Make the 'Octave' label clearly visible between +/-
-            self.oct_label.setMinimumWidth(60)
-            self.oct_label.setAlignment(Qt.AlignCenter)
-            self.oct_label.setStyleSheet(
-                "font-size: 10px; color: #dddddd; padding: 0 6px; "
-                "background-color: rgba(255,255,255,0.08); "
+        except Exception:
+            pass
+        # Apply unified slider styling to match RangeSlider look when visible
+        try:
+            slider_qss = (
+                "QSlider::groove:horizontal {"
+                "  height: 8px;"
+                "  background: #3a3f46;"
+                "  border: 1px solid #2a2f35;"
+                "  border-radius: 3px;"
+                "}"
+                "QSlider::sub-page:horizontal {"
+                "  background: #61b3ff;"
+                "  border: 1px solid #2f82e6;"
+                "  border-radius: 3px;"
+                "}"
+                "QSlider::add-page:horizontal {"
+                "  background: transparent;"
+                "}"
+                "QSlider::handle:horizontal {"
+                "  width: 12px;"
+                "  height: 20px;"
+                "  background: #eaeaea;"
+                "  border: 1px solid #5a5f66;"
+                "  border-radius: 3px;"
+                "  margin: -6px 0; /* extend handle vertically to overlap groove */"
+                "}"
+                "QSlider::groove:vertical {"
+                "  width: 8px;"
+                "  background: #3a3f46;"
+                "  border: 1px solid #2a2f35;"
+                "  border-radius: 3px;"
+                "}"
+                "QSlider::sub-page:vertical {"
+                "  background: transparent;"
+                "}"
+                "QSlider::add-page:vertical {"
+                "  background: #61b3ff;"
+                "  border: 1px solid #2f82e6;"
+                "  border-radius: 3px;"
+                "}"
+                "QSlider::handle:vertical {"
+                "  height: 12px;"
+                "  width: 20px;"
+                "  background: #eaeaea;"
+                "  border: 1px solid #5a5f66;"
+                "  border-radius: 3px;"
+                "  margin: 0 -6px; /* extend handle horizontally to overlap groove */"
+                "}"
                 "border: 1px solid #444; border-radius: 3px;"
             )
+            self._slider_qss = slider_qss
+            self.vel_slider.setStyleSheet(slider_qss)
             self.vel_label.setStyleSheet("font-size: 9px;")
         except Exception:
             pass
@@ -495,6 +558,7 @@ class KeyboardWidget(QWidget):
         try:
             for s in (self.pitch_slider, self.mod_slider):
                 s.setFixedWidth(28)
+                s.setStyleSheet(slider_qss)
         except Exception:
             pass
         # Labels
@@ -562,7 +626,7 @@ class KeyboardWidget(QWidget):
             if white_key.note >= 0:  # Skip spacer keys
                 btn = QPushButton("", piano_container)
                 # Use full width for reliable click/drag; separators are visual via borders
-                btn.setGeometry(x_pos, 0, w, 110)
+                btn.setGeometry(x_pos, 0, w, 134)
                 try:
                     btn.setAttribute(Qt.WA_StyledBackground, True)
                 except Exception:
@@ -929,13 +993,13 @@ class KeyboardWidget(QWidget):
             width = int(self.piano_container.width())
         except Exception:
             width = 800
-        keys_h = 110
+        keys_h = 134
         if getattr(self, "_show_header", True):
-            # header(~20-24) + keys(110)
-            return QSize(width, 134)
+            # header(~24) + keys(134)
+            return QSize(width, 158)
         elif getattr(self, "_compact_controls", True):
-            # compact controls (~18) + keys(110)
-            return QSize(width, 128)
+            # compact controls (~18) + keys(134)
+            return QSize(width, 152)
         else:
             # keys only
             return QSize(width, keys_h)
@@ -1002,11 +1066,11 @@ class KeyboardWidget(QWidget):
             width = int(self.piano_container.width())
         except Exception:
             width = 400
-        keys_h = 110
+        keys_h = 134
         if getattr(self, "_show_header", True):
-            return QSize(width, 128)
+            return QSize(width, 152)
         elif getattr(self, "_compact_controls", True):
-            return QSize(width, 128)
+            return QSize(width, 152)
         else:
             return QSize(width, keys_h)
 
@@ -1073,8 +1137,8 @@ class KeyboardWidget(QWidget):
         # Ensure the corresponding key button shows as pressed (by base note)
         self._apply_note_visual(base_note, True, False)
         
-        # Set dragging state (disabled while latch is on)
-        if not getattr(self, 'latch', False):
+        # Set dragging state only when neither latch nor sustain is active
+        if not getattr(self, 'latch', False) and not getattr(self, 'sustain', False):
             self.dragging = True
             self.last_drag_key = key
             self._last_drag_note_base = key.note
@@ -1094,10 +1158,15 @@ class KeyboardWidget(QWidget):
     def on_key_release(self, key: KeyDef):
         base_note = key.note
         note = self.effective_note(base_note)
-        # In latch mode, do not send note-off on release; keep it held until toggled by another press
+        # In latch mode, reflect the actual latched state on release
         if getattr(self, 'latch', False):
-            # Keep visual down in latch mode
-            self._apply_note_visual(base_note, True, True)
+            ch = self.midi_channel
+            if (note, ch) in self.active_notes:
+                # Still latched: keep held visual
+                self._apply_note_visual(base_note, True, True)
+            else:
+                # Was toggled off on press: clear visual
+                self._apply_note_visual(base_note, False, False)
             return
         if not self.sustain:
             ch = self.midi_channel
@@ -1120,6 +1189,29 @@ class KeyboardWidget(QWidget):
             self._apply_note_visual(base_note, False, False)
             # Also ensure no other key remains visually active due to sustain
             self._clear_other_actives(None)
+            # Reinforce after event processing: clear all key visuals
+            try:
+                def _clear_all_keys():
+                    try:
+                        for b in self.key_buttons.values():
+                            self._apply_btn_visual(b, False, False)
+                    except Exception:
+                        pass
+                QTimer.singleShot(0, _clear_all_keys)
+            except Exception:
+                pass
+        # Extra safety: explicitly clear the actual sender button's visual
+        try:
+            sender_btn = self.sender()
+            if isinstance(sender_btn, QPushButton):
+                self._apply_btn_visual(sender_btn, False, False)
+                # Reinforce after event processing in case of ordering/race
+                try:
+                    QTimer.singleShot(0, lambda b=sender_btn: self._apply_btn_visual(b, False, False))
+                except Exception:
+                    pass
+        except Exception:
+            pass
         # Ensure drag state is stopped on a normal click release (not just via eventFilter)
         if not getattr(self, 'latch', False):
             self.dragging = False
@@ -1134,6 +1226,16 @@ class KeyboardWidget(QWidget):
 
     def eventFilter(self, obj, event):
         """Global event filter to handle drag across child buttons reliably."""
+        # Even when not dragging: if sustain is on, ensure a click release clears visuals
+        if event.type() == QEvent.MouseButtonRelease and getattr(self, 'sustain', False):
+            try:
+                if isinstance(obj, QPushButton) and hasattr(obj, 'key_note'):
+                    self._apply_btn_visual(obj, False, False)
+                    self._clear_other_actives(None)
+                    # Reinforce after event loop
+                    QTimer.singleShot(0, lambda b=obj: self._apply_btn_visual(b, False, False))
+            except Exception:
+                pass
         if self.dragging:
             # Handle mouse move while dragging
             if event.type() == QEvent.MouseMove:
@@ -1215,6 +1317,12 @@ class KeyboardWidget(QWidget):
                         self._apply_btn_visual(self.last_drag_button, True, True)
                     else:
                         self._apply_btn_visual(self.last_drag_button, False, False)
+                        # Reinforce after event processing to avoid any transient re-activation
+                        try:
+                            btn_ref = self.last_drag_button
+                            QTimer.singleShot(0, lambda b=btn_ref: self._apply_btn_visual(b, False, False))
+                        except Exception:
+                            pass
                 self._last_drag_note_base = None
                 self.last_drag_key = None
                 self.last_drag_button = None
@@ -1353,8 +1461,8 @@ class KeyboardWidget(QWidget):
                     if b.property('active') != 'true':
                         self._apply_btn_visual(b, True, False)
                     continue
-                if b.property('active') == 'true':
-                    self._apply_btn_visual(b, False, False)
+                # Unconditionally clear both active and held for all others
+                self._apply_btn_visual(b, False, False)
         except Exception:
             pass
 
