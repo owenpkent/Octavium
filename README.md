@@ -18,7 +18,7 @@ An accessibility-first, mouse‑driven virtual MIDI keyboard for making music wi
 - **Octave controls**: Buttons and shortcuts for quick visual range shifts.
 - **Polyphony options**: Limit voices or run unlimited.
 - **MIDI routing**: Choose output port and channel.
-- **Layouts**: JSON-based; start with a 61‑key piano.
+- **Code-defined layouts**: Built-in 61‑key piano layout.
 
 ## Quick Start
 
@@ -120,8 +120,7 @@ On first run, Octavium attempts to use `mido` with `python-rtmidi`. If unavailab
 - **`app/midi_io.py`**
   - `MidiOut`: Simple abstraction for MIDI output. Tries mido/rtmidi, falls back to pygame if needed. Methods: `note_on`, `note_off`, `cc`, `panic`.
 
-- **`layouts/`**
-  - JSON layout definitions (e.g., `layouts/piano_61.json`). You can create custom layouts.
+
 
 ## License
 

@@ -3,7 +3,7 @@ from datetime import datetime
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QMenu, QInputDialog, QMessageBox
 )
-from PySide6.QtGui import QAction, QActionGroup, QIcon, QPixmap
+from PySide6.QtGui import QAction, QActionGroup, QIcon, QPixmap, QShortcut, QKeySequence
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QUrl
 from .keyboard_widget import KeyboardWidget
@@ -23,6 +23,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.current_size = size
+        self.current_scale = 1.0  # 1.0 = 100%
         self.current_channel = 1  # 1-16
         # Create or reuse MIDI and keyboard
         if midi is None:
@@ -32,7 +33,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "MIDI Error", f"Failed to open MIDI output (hint '{port_hint}'):\n{e}")
                 raise
         layout = create_piano_by_size(size)
-        self.keyboard = KeyboardWidget(layout, midi, title=f"Piano {size}-Key -> {port_hint}", show_header=False)
+        self.keyboard = KeyboardWidget(layout, midi, title=f"Piano {size}-Key -> {port_hint}", show_header=False, scale=self.current_scale)
         self.keyboard.port_name = port_hint
         self.keyboard.set_channel(self.current_channel)
         self.setCentralWidget(self.keyboard)
@@ -66,7 +67,7 @@ class MainWindow(QMainWindow):
         show_mod.setCheckable(True)
         show_mod.setChecked(bool(self.menu_actions.get('show_mod', False)))
         show_mod.toggled.connect(lambda checked: (
-            setattr(self.menu_actions, 'show_mod', checked) if False else None,
+            self.menu_actions.__setitem__('show_mod', bool(checked)),
             self.keyboard.set_show_mod_wheel(checked),
             self._resize_for_layout(self.keyboard.layout_model),
             QTimer.singleShot(0, lambda: (
@@ -80,7 +81,7 @@ class MainWindow(QMainWindow):
         show_pitch.setCheckable(True)
         show_pitch.setChecked(bool(self.menu_actions.get('show_pitch', False)))
         show_pitch.toggled.connect(lambda checked: (
-            setattr(self.menu_actions, 'show_pitch', checked) if False else None,
+            self.menu_actions.__setitem__('show_pitch', bool(checked)),
             self.keyboard.set_show_pitch_wheel(checked),
             self._resize_for_layout(self.keyboard.layout_model),
             QTimer.singleShot(0, lambda: (
@@ -141,6 +142,45 @@ class MainWindow(QMainWindow):
                 self._resize_for_layout(self.keyboard.layout_model),
                 self.adjustSize()
             ))
+        except Exception:
+            pass
+
+        # Zoom submenu with preset levels
+        try:
+            zoom_menu = view_menu.addMenu("Zoom")
+            self.zoom_group = QActionGroup(self)
+            self.zoom_group.setExclusive(True)
+            # label -> scale mapping
+            presets: list[tuple[str, float]] = [
+                ("50%", 0.50), ("75%", 0.75), ("90%", 0.90), ("100% (default)", 1.00),
+                ("110%", 1.10), ("125%", 1.25), ("150%", 1.50), ("200%", 2.00),
+            ]
+            prev_zoom = float(self.menu_actions.get('zoom_scale', self.current_scale))
+            self.zoom_actions: list[QAction] = []
+            for label, scale in presets:
+                act = QAction(label, self)
+                act.setCheckable(True)
+                # consider equal within small epsilon
+                if abs(scale - prev_zoom) < 1e-6:
+                    act.setChecked(True)
+                    # ensure current_scale follows menu persisted value
+                    self.current_scale = scale
+                act.triggered.connect(lambda checked, sc=scale: self.set_zoom(sc))
+                self.zoom_group.addAction(act)
+                zoom_menu.addAction(act)
+                self.zoom_actions.append(act)
+            self.menu_actions['zoom_actions'] = self.zoom_actions
+            self.menu_actions['zoom_group'] = self.zoom_group
+            self.menu_actions['zoom_scale'] = self.current_scale
+            # Keyboard shortcuts for zooming
+            try:
+                # Zoom in shortcuts: Ctrl++ and Ctrl+=
+                QShortcut(QKeySequence("Ctrl++"), self, activated=self._zoom_in_step)
+                QShortcut(QKeySequence("Ctrl+="), self, activated=self._zoom_in_step)
+                # Zoom out shortcut: Ctrl+-
+                QShortcut(QKeySequence("Ctrl+-"), self, activated=self._zoom_out_step)
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -254,7 +294,7 @@ class MainWindow(QMainWindow):
         self.current_size = size
         # Rebuild keyboard with same MIDI out
         layout = create_piano_by_size(size)
-        new_keyboard = KeyboardWidget(layout, self.keyboard.midi, show_header=False)
+        new_keyboard = KeyboardWidget(layout, self.keyboard.midi, show_header=False, scale=getattr(self.keyboard, 'ui_scale', 1.0))
         new_keyboard.port_name = self.keyboard.port_name
         new_keyboard.update_window_title()
         self.setCentralWidget(new_keyboard)
@@ -283,8 +323,11 @@ class MainWindow(QMainWindow):
                     pass
                 # View menu: wheels visibility
                 try:
-                    self.keyboard.set_show_mod_wheel(bool(self.menu_actions.get('show_mod', False)))
-                    self.keyboard.set_show_pitch_wheel(bool(self.menu_actions.get('show_pitch', False)))
+                    # Prefer live QAction checked states if available
+                    mod_checked = bool(self.menu_actions['view_show_mod'].isChecked()) if 'view_show_mod' in self.menu_actions else bool(self.menu_actions.get('show_mod', False))
+                    pitch_checked = bool(self.menu_actions['view_show_pitch'].isChecked()) if 'view_show_pitch' in self.menu_actions else bool(self.menu_actions.get('show_pitch', False))
+                    self.keyboard.set_show_mod_wheel(mod_checked)
+                    self.keyboard.set_show_pitch_wheel(pitch_checked)
                 except Exception:
                     pass
         except Exception:
@@ -341,11 +384,93 @@ class MainWindow(QMainWindow):
     def new_keyboard_window(self):
         win = MainWindow(self.app_ref, size=self.current_size, port_hint=self.keyboard.port_name or "", midi=self.keyboard.midi)
         win.set_channel(self.current_channel)
+        # Apply current zoom to the new window
+        try:
+            curr_scale = float(getattr(self.keyboard, 'ui_scale', 1.0))
+            win.set_zoom(curr_scale)
+        except Exception:
+            pass
         # Keep reference on QApplication to prevent GC
         if not hasattr(self.app_ref, "_windows"):
             self.app_ref._windows = []  # type: ignore[attr-defined]
         self.app_ref._windows.append(win)  # type: ignore[attr-defined]
         win.show()
+
+    def set_zoom(self, scale: float):
+        try:
+            scale = float(scale)
+        except Exception:
+            scale = 1.0
+        if scale <= 0:
+            scale = 1.0
+        # If no change, do nothing
+        try:
+            curr = float(getattr(self.keyboard, 'ui_scale', 1.0))
+        except Exception:
+            curr = 1.0
+        if abs(curr - scale) < 1e-6:
+            return
+        self.current_scale = scale
+        # Rebuild keyboard with same layout and MIDI out, preserving state
+        layout = create_piano_by_size(self.current_size)
+        new_keyboard = KeyboardWidget(layout, self.keyboard.midi, show_header=False, scale=scale)
+        new_keyboard.port_name = self.keyboard.port_name
+        new_keyboard.update_window_title()
+        self.setCentralWidget(new_keyboard)
+        self.keyboard.deleteLater()
+        self.keyboard = new_keyboard
+        # Restore channel
+        try:
+            self.keyboard.set_channel(self.current_channel)
+        except Exception:
+            pass
+        # Restore view menu selections
+        try:
+            self.keyboard.set_show_mod_wheel(bool(self.menu_actions.get('show_mod', False)))
+            self.keyboard.set_show_pitch_wheel(bool(self.menu_actions.get('show_pitch', False)))
+            self.keyboard.visual_hold_on_sustain = bool(self.menu_actions.get('visual_hold_checked', False))
+        except Exception:
+            pass
+        # Restore voices (polyphony)
+        try:
+            sel = self.menu_actions.get('voices_selected', 'Unlimited')
+            if sel == 'Unlimited':
+                self.keyboard.set_polyphony_enabled(False)
+            else:
+                self.keyboard.set_polyphony_enabled(True)
+                try:
+                    self.keyboard.set_polyphony_max(int(sel))
+                except Exception:
+                    self.keyboard.set_polyphony_max(8)
+        except Exception:
+            pass
+        # Persist zoom selection
+        self.menu_actions['zoom_scale'] = self.current_scale
+        # Update checkmarks in menu
+        try:
+            if hasattr(self, 'zoom_group'):
+                for act in self.zoom_group.actions():
+                    txt = act.text()
+                    try:
+                        pct = 1.0
+                        if '%' in txt:
+                            pct = float(txt.split('%')[0]) / 100.0
+                        if 'default' in txt.lower():
+                            pct = 1.0
+                    except Exception:
+                        pct = 1.0
+                    act.setChecked(abs(pct - scale) < 1e-6)
+        except Exception:
+            pass
+        # Resize window for new scale
+        self._resize_for_layout(layout)
+        self.keyboard.adjustSize()
+        self.adjustSize()
+        QTimer.singleShot(0, lambda: (
+            self.keyboard.adjustSize(),
+            self._resize_for_layout(layout),
+            self.adjustSize()
+        ))
 
     def _resize_for_layout(self, layout):
         """Resize the window to fit current keyboard content width.
@@ -376,7 +501,12 @@ class MainWindow(QMainWindow):
                 columns = getattr(layout, 'columns', 36) or 36
             except Exception:
                 columns = 36
-            content_width = columns * 44  # matches KeyboardWidget white key width
+            # Respect current UI scale as used by KeyboardWidget
+            try:
+                scale = float(getattr(self.keyboard, 'ui_scale', 1.0))
+            except Exception:
+                scale = 1.0
+            content_width = int(columns * 44 * scale)  # matches KeyboardWidget white key base width
 
         side_padding = 56  # modest side padding for window chrome
         target_width = content_width + side_padding
@@ -389,7 +519,9 @@ class MainWindow(QMainWindow):
             menu_h = self.menuBar().sizeHint().height()
         except Exception:
             menu_h = 0
-        target_height = int(kb_h + menu_h)
+        # Add a small safety margin to avoid bottom clipping at higher zoom / OS DPI
+        vertical_padding = 12
+        target_height = int(kb_h + menu_h + vertical_padding)
         # Ensure we can shrink down (e.g., 25 keys)
         target_width = int(target_width)
         # Update child geometry first
@@ -410,22 +542,62 @@ class MainWindow(QMainWindow):
         self.setMaximumSize(target_width, target_height)
         self.resize(target_width, target_height)
         self.setMaximumSize(16777215, 16777215)
+    def _get_zoom_presets(self) -> list[float]:
+        scales: list[float] = []
+        try:
+            acts = getattr(self, 'zoom_actions', [])
+            for act in acts:
+                txt = act.text()
+                sc = 1.0
+                try:
+                    if '%' in txt:
+                        pct = float(txt.split('%')[0].split()[0])
+                        sc = pct / 100.0
+                    elif 'default' in txt.lower():
+                        sc = 1.0
+                except Exception:
+                    sc = 1.0
+                scales.append(sc)
+        except Exception:
+            pass
+        # Fallback
+        if not scales:
+            scales = [0.50, 0.75, 0.90, 1.00, 1.10, 1.25, 1.50, 2.00]
+        return scales
 
-    def set_channel(self, channel_1_based: int):
-        channel_1_based = max(1, min(16, channel_1_based))
-        if self.current_channel == channel_1_based:
-            return
-            
-        self.current_channel = channel_1_based
-        # Update UI check marks
-        if hasattr(self, 'channel_actions'):
-            for idx, act in enumerate(self.channel_actions, start=1):
-                act.setChecked(idx == channel_1_based)
-        # Apply to keyboard
-        if hasattr(self, 'keyboard') and self.keyboard is not None:
-            self.keyboard.set_channel(channel_1_based)
-        self._update_window_title()
+    def _zoom_in_step(self):
+        scales = self._get_zoom_presets()
+        curr = float(getattr(self, 'current_scale', 1.0))
+        # find nearest index >= curr
+        try:
+            # ensure ascending
+            scales_sorted = sorted(scales)
+            idx = 0
+            for i, sc in enumerate(scales_sorted):
+                if sc >= curr - 1e-6:
+                    idx = i
+                    break
+            # step up if possible, else stay at last
+            new_idx = min(idx + 1, len(scales_sorted) - 1)
+            self.set_zoom(scales_sorted[new_idx])
+        except Exception:
+            self.set_zoom(min(2.0, curr * 1.1))
 
+    def _zoom_out_step(self):
+        scales = self._get_zoom_presets()
+        curr = float(getattr(self, 'current_scale', 1.0))
+        try:
+            scales_sorted = sorted(scales)
+            idx = 0
+            for i, sc in enumerate(scales_sorted):
+                if sc > curr + 1e-6:
+                    idx = max(0, i - 1)
+                    break
+                idx = i
+            new_idx = max(0, idx - 1)
+            self.set_zoom(scales_sorted[new_idx])
+        except Exception:
+            self.set_zoom(max(0.5, curr / 1.1))
     def show_keyboard_shortcuts(self):
         text = (
             "Keyboard shortcuts:\n\n"
