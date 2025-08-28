@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
 
         # MIDI menu
         midi_menu = menubar.addMenu("&MIDI")
-        select_port = QAction("Select Output Port...", self)
+        select_port = QAction("Select Output Port", self)
         select_port.triggered.connect(self.select_midi_port)
         midi_menu.addAction(select_port)
 
@@ -413,6 +413,9 @@ class MainWindow(QMainWindow):
 
     def set_channel(self, channel_1_based: int):
         channel_1_based = max(1, min(16, channel_1_based))
+        if self.current_channel == channel_1_based:
+            return
+            
         self.current_channel = channel_1_based
         # Update UI check marks
         if hasattr(self, 'channel_actions'):
@@ -421,6 +424,7 @@ class MainWindow(QMainWindow):
         # Apply to keyboard
         if hasattr(self, 'keyboard') and self.keyboard is not None:
             self.keyboard.set_channel(channel_1_based)
+        self._update_window_title()
 
     def show_keyboard_shortcuts(self):
         text = (
@@ -473,10 +477,9 @@ class MainWindow(QMainWindow):
     def _update_window_title(self):
         try:
             kb_name = getattr(self.keyboard.layout_model, 'name', '') or 'Keyboard'
-            self.setWindowTitle(f"Octavium - {kb_name}")
+            self.setWindowTitle(f"Octavium [Ch {self.current_channel}] - {kb_name}")
         except Exception:
-            self.setWindowTitle("Octavium")
-
+            self.setWindowTitle(f"Octavium [Ch {self.current_channel}]")
 
 def run():
     app = QApplication(sys.argv)
