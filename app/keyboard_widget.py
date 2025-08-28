@@ -378,6 +378,13 @@ class KeyboardWidget(QWidget):
         self.vel_range = RangeSlider(1, 127, low=80, high=110, parent=self)
         self.vel_range.setVisible(False)
         self.vel_random_chk.toggled.connect(self._toggle_vel_random)
+        # Default to randomized velocity enabled
+        try:
+            self.vel_random_chk.setChecked(True)
+            # Ensure UI elements reflect the default state even if signal doesn't fire
+            self._toggle_vel_random(True)
+        except Exception:
+            pass
         # Keep header small so small keyboards can shrink
         try:
             self.vel_slider.setFixedWidth(200)

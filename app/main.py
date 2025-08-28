@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
 
         # MIDI menu
         midi_menu = menubar.addMenu("&MIDI")
-        select_port = QAction("Select Output Port...", self)
+        select_port = QAction("Select Output Port", self)
         select_port.triggered.connect(self.select_midi_port)
         midi_menu.addAction(select_port)
 
