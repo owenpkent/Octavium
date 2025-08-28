@@ -228,7 +228,7 @@ class RangeSlider(QWidget):
         return super().mouseReleaseEvent(ev)
 
 class KeyboardWidget(QWidget):
-    def __init__(self, layout_model: Layout, midi_out: MidiOut, title: str = "", show_header: bool = True, compact_controls: bool = True):
+    def __init__(self, layout_model: Layout, midi_out: MidiOut, title: str = "", show_header: bool = True, compact_controls: bool = True, scale: float = 1.0):
         super().__init__()
         self.layout_model = layout_model
         self.midi = midi_out
@@ -250,6 +250,11 @@ class KeyboardWidget(QWidget):
         self._last_drag_note_base: int | None = None  # Track last dragged raw base note (key pitch class)
         self.key_buttons = {}  # Map from note to button
         self.setWindowTitle(title or layout_model.name)
+        # UI scale factor (zoom). Used for key geometry and certain panel widths.
+        try:
+            self.ui_scale = float(scale) if float(scale) > 0 else 1.0
+        except Exception:
+            self.ui_scale = 1.0
         self.setMouseTracking(True)  # Enable mouse tracking for drag
         # Event filter will be installed on the piano container after it is created
         root = QVBoxLayout(self)
@@ -266,15 +271,22 @@ class KeyboardWidget(QWidget):
         self._compact_controls = compact_controls
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
-        header.setSpacing(1)
+        try:
+            s = max(0.5, float(getattr(self, 'ui_scale', 1.0)))
+            header.setSpacing(max(1, int(2 * s)))
+        except Exception:
+            header.setSpacing(1)
         self.oct_label = QLabel("Octave")
         # Octave +/- buttons
         self.oct_minus_btn = QPushButton("-")
         self.oct_plus_btn = QPushButton("+")
         for b in (self.oct_minus_btn, self.oct_plus_btn):
             b.setCursor(Qt.PointingHandCursor)
-            b.setFixedWidth(20)
-            b.setFixedHeight(18)
+            try:
+                b.setFixedWidth(int(20 * self.ui_scale))
+                b.setFixedHeight(int(18 * self.ui_scale))
+            except Exception:
+                pass
             # Styling will be applied uniformly later via _apply_header_button_styles()
         self.oct_minus_btn.clicked.connect(lambda: self.change_octave(-1))
         self.oct_plus_btn.clicked.connect(lambda: self.change_octave(+1))
@@ -295,14 +307,14 @@ class KeyboardWidget(QWidget):
                 color: #222;
             }
             QPushButton:checked {
-                background-color: #2ecc71; /* green */
+                background-color: #3498db; /* blue to match Latch */
                 color: white;
-                border: 1px solid #27ae60;
+                border: 1px solid #2980b9;
             }
             QPushButton:hover { background-color: #e9e9e9; }
             QPushButton:pressed { background-color: #dcdcdc; }
-            QPushButton:checked:hover { background-color: #29c267; }
-            QPushButton:checked:pressed { background-color: #25b75f; }
+            QPushButton:checked:hover { background-color: #2f8ccc; }
+            QPushButton:checked:pressed { background-color: #2a7fb8; }
             """
         )
         # Latch button (toggle)
@@ -348,20 +360,30 @@ class KeyboardWidget(QWidget):
             QPushButton:pressed { background-color: #e5e5e5; }
             """
         )
+        # Store base stylesheet for flash/revert behavior
+        try:
+            self._all_off_btn_base_qss = str(self.all_off_btn.styleSheet())
+        except Exception:
+            self._all_off_btn_base_qss = ""
         
         self.vel_label = QLabel("Vel curve: linear")
         # Velocity controls: single slider and randomized range
         self.vel_random_chk = QCheckBox("Randomized Velocity")
         self.vel_random_chk.setToolTip("Randomize velocity within a range")
-        # Style checkbox to use the same blue as sliders
+        # Style checkbox to use the same blue as sliders, scaled by ui_scale
         try:
+            s = max(0.5, float(getattr(self, 'ui_scale', 1.0)))
+            ind = int(14 * s)
+            sp = int(4 * s)
+            rad = max(2, int(3 * s))
+            font_px = max(9, int(11 * s))
             self.vel_random_chk.setStyleSheet(
-                "QCheckBox { color: #ddd; spacing: 4px; }"
+                f"QCheckBox {{ color: #ddd; spacing: {sp}px; font-size: {font_px}px; }}"
                 "QCheckBox::indicator {"
-                "  width: 14px; height: 14px;"
+                f"  width: {ind}px; height: {ind}px;"
                 "  border: 1px solid #2a2f35;"
                 "  background: #2b2f36;"
-                "  border-radius: 3px;"
+                f"  border-radius: {rad}px;"
                 "}"
                 "QCheckBox::indicator:hover { border: 1px solid #61b3ff; }"
                 "QCheckBox::indicator:checked {"
@@ -385,31 +407,40 @@ class KeyboardWidget(QWidget):
             self._toggle_vel_random(True)
         except Exception:
             pass
-        # Keep header small so small keyboards can shrink
+        # Keep header small so small keyboards can shrink (but scale with ui_scale)
         try:
-            self.vel_slider.setFixedWidth(200)
-            self.vel_range.setFixedWidth(200)
-            self.vel_slider.setFixedHeight(16)
-            self.vel_range.setFixedHeight(20)
+            self.vel_slider.setFixedWidth(int(200 * self.ui_scale))
+            self.vel_range.setFixedWidth(int(200 * self.ui_scale))
+            self.vel_slider.setFixedHeight(int(16 * self.ui_scale))
+            self.vel_range.setFixedHeight(int(20 * self.ui_scale))
             self.vel_slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             self.vel_range.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             self.oct_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             self.vel_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            self.sustain_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            self.latch_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            self.all_off_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            self.sustain_btn.setFixedHeight(18)
-            self.latch_btn.setFixedHeight(18)
-            self.all_off_btn.setFixedHeight(18)
-            self.oct_label.setFixedHeight(16)
-            self.vel_label.setFixedHeight(16)
+            # Allow buttons to grow horizontally to avoid text clipping
+            self.sustain_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            self.latch_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            self.all_off_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            self.sustain_btn.setFixedHeight(int(18 * self.ui_scale))
+            self.latch_btn.setFixedHeight(int(18 * self.ui_scale))
+            self.all_off_btn.setFixedHeight(int(18 * self.ui_scale))
+            self.oct_label.setFixedHeight(int(16 * self.ui_scale))
+            self.vel_label.setFixedHeight(int(16 * self.ui_scale))
         except Exception:
             pass
         # Apply unified slider styling to match RangeSlider look when visible
         try:
+            s = max(0.5, float(getattr(self, 'ui_scale', 1.0)))
+            gh = int(8 * s)
+            hw = int(12 * s)
+            hh = int(20 * s)
+            vmw = int(8 * s)
+            vhh = int(12 * s)
+            vhw = int(20 * s)
+            m = int(6 * s)
             slider_qss = (
-                "QSlider::groove:horizontal {"
-                "  height: 8px;"
+                f"QSlider::groove:horizontal {{"
+                f"  height: {gh}px;"
                 "  background: #3a3f46;"
                 "  border: 1px solid #2a2f35;"
                 "  border-radius: 3px;"
@@ -422,16 +453,16 @@ class KeyboardWidget(QWidget):
                 "QSlider::add-page:horizontal {"
                 "  background: transparent;"
                 "}"
-                "QSlider::handle:horizontal {"
-                "  width: 12px;"
-                "  height: 20px;"
+                f"QSlider::handle:horizontal {{"
+                f"  width: {hw}px;"
+                f"  height: {hh}px;"
                 "  background: #eaeaea;"
                 "  border: 1px solid #5a5f66;"
                 "  border-radius: 3px;"
-                "  margin: -6px 0; /* extend handle vertically to overlap groove */"
+                f"  margin: -{m}px 0; /* extend handle vertically to overlap groove */"
                 "}"
-                "QSlider::groove:vertical {"
-                "  width: 8px;"
+                f"QSlider::groove:vertical {{"
+                f"  width: {vmw}px;"
                 "  background: #3a3f46;"
                 "  border: 1px solid #2a2f35;"
                 "  border-radius: 3px;"
@@ -444,38 +475,54 @@ class KeyboardWidget(QWidget):
                 "  border: 1px solid #2f82e6;"
                 "  border-radius: 3px;"
                 "}"
-                "QSlider::handle:vertical {"
-                "  height: 12px;"
-                "  width: 20px;"
+                f"QSlider::handle:vertical {{"
+                f"  height: {vhh}px;"
+                f"  width: {vhw}px;"
                 "  background: #eaeaea;"
                 "  border: 1px solid #5a5f66;"
                 "  border-radius: 3px;"
-                "  margin: 0 -6px; /* extend handle horizontally to overlap groove */"
+                f"  margin: 0 -{m}px; /* extend handle horizontally to overlap groove */"
                 "}"
                 "border: 1px solid #444; border-radius: 3px;"
             )
             self._slider_qss = slider_qss
             self.vel_slider.setStyleSheet(slider_qss)
-            self.vel_label.setStyleSheet("font-size: 9px;")
+            try:
+                fs = max(8, int(9 * self.ui_scale))
+            except Exception:
+                fs = 9
+            self.vel_label.setStyleSheet(f"font-size: {fs}px;")
         except Exception:
             pass
         
+        # Ensure header buttons/labels have adequate size at higher zoom
+        try:
+            s = max(0.5, float(getattr(self, 'ui_scale', 1.0)))
+            # Minimum widths to avoid text clipping (bumped again for 200%)
+            self.sustain_btn.setMinimumWidth(int(120 * s))
+            self.latch_btn.setMinimumWidth(int(100 * s))
+            self.all_off_btn.setMinimumWidth(int(160 * s))
+            # Octave label font size
+            self.oct_label.setStyleSheet(f"font-size: {max(9, int(11 * s))}px; color: #ddd;")
+            # Octave +/- buttons sized
+            self.oct_minus_btn.setFixedHeight(int(18 * s))
+            self.oct_plus_btn.setFixedHeight(int(18 * s))
+            self.oct_minus_btn.setFixedWidth(int(24 * s))
+            self.oct_plus_btn.setFixedWidth(int(24 * s))
+        except Exception:
+            pass
         header.addWidget(self.oct_minus_btn)
         header.addWidget(self.oct_label)
         header.addWidget(self.oct_plus_btn)
         header.addWidget(self.vel_label)
-        header.addStretch()
-        header.addWidget(self.sustain_btn)
-        header.addWidget(self.latch_btn)
-        header.addWidget(self.all_off_btn)
         header.addWidget(self.vel_random_chk)
         header.addWidget(self.vel_slider)
         header.addWidget(self.vel_range)
-        # Apply unified modern styles to header buttons
-        try:
-            self._apply_header_button_styles()
-        except Exception:
-            pass
+        header.addWidget(self.sustain_btn)
+        header.addWidget(self.latch_btn)
+        header.addWidget(self.all_off_btn)
+        header.addStretch()
+        # Keep original per-button styles (defined when buttons are created)
         if self._show_header:
             root.addLayout(header)
         elif self._compact_controls:
@@ -493,19 +540,18 @@ class KeyboardWidget(QWidget):
             controls.addStretch()
             # Enlarge buttons a bit so text isn't clipped
             try:
-                self.sustain_btn.setFixedHeight(22)
-                self.latch_btn.setFixedHeight(22)
-                self.all_off_btn.setFixedHeight(22)
-                self.sustain_btn.setMinimumWidth(90)
-                self.latch_btn.setMinimumWidth(70)
-                self.all_off_btn.setMinimumWidth(110)
-                # Increase padding and font size for readability
-                self._apply_header_button_styles()
+                self.sustain_btn.setFixedHeight(int(22 * self.ui_scale))
+                self.latch_btn.setFixedHeight(int(22 * self.ui_scale))
+                self.all_off_btn.setFixedHeight(int(22 * self.ui_scale))
+                self.sustain_btn.setMinimumWidth(int(90 * self.ui_scale))
+                self.latch_btn.setMinimumWidth(int(70 * self.ui_scale))
+                self.all_off_btn.setMinimumWidth(int(110 * self.ui_scale))
+                # Keep original per-button styles
                 # Slightly larger octave buttons in compact bar
-                self.oct_minus_btn.setFixedHeight(22)
-                self.oct_plus_btn.setFixedHeight(22)
-                self.oct_minus_btn.setFixedWidth(24)
-                self.oct_plus_btn.setFixedWidth(24)
+                self.oct_minus_btn.setFixedHeight(int(22 * self.ui_scale))
+                self.oct_plus_btn.setFixedHeight(int(22 * self.ui_scale))
+                self.oct_minus_btn.setFixedWidth(int(24 * self.ui_scale))
+                self.oct_plus_btn.setFixedWidth(int(24 * self.ui_scale))
             except Exception:
                 pass
             controls.addWidget(self.oct_minus_btn)
@@ -533,7 +579,7 @@ class KeyboardWidget(QWidget):
         self.left_panel = QWidget()
         try:
             # Start with single-wheel width; will grow if both wheels are shown
-            self.left_panel.setFixedWidth(44)
+            self.left_panel.setFixedWidth(int(44 * self.ui_scale))
             self.left_panel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         except Exception:
             pass
@@ -564,7 +610,7 @@ class KeyboardWidget(QWidget):
         self.mod_slider.valueChanged.connect(lambda v: self._send_mod_cc(v))
         try:
             for s in (self.pitch_slider, self.mod_slider):
-                s.setFixedWidth(28)
+                s.setFixedWidth(int(28 * self.ui_scale))
                 s.setStyleSheet(slider_qss)
         except Exception:
             pass
@@ -572,9 +618,10 @@ class KeyboardWidget(QWidget):
         self.mod_lbl = QLabel("Mod")
         self.pitch_lbl = QLabel("Pitch")
         try:
+            fs_lbl = max(8, int(9 * self.ui_scale))
             for lbl in (self.mod_lbl, self.pitch_lbl):
                 lbl.setAlignment(Qt.AlignHCenter)
-                lbl.setStyleSheet("font-size: 9px; color: #ddd;")
+                lbl.setStyleSheet(f"font-size: {fs_lbl}px; color: #ddd;")
         except Exception:
             pass
         # Build two vertical columns: Mod column and Pitch column
@@ -600,7 +647,8 @@ class KeyboardWidget(QWidget):
 
         # Create a container widget for absolute positioning
         piano_container = QWidget()
-        piano_container.setFixedHeight(110)  # White keys +10 vs original 100
+        # Match or exceed white key height (134 * scale) to avoid bottom clipping at higher zoom
+        piano_container.setFixedHeight(int(140 * self.ui_scale))
         # Dark instrument panel background under keys
         piano_container.setStyleSheet(
             """
@@ -629,11 +677,11 @@ class KeyboardWidget(QWidget):
         white_positions: list[tuple[int, int]] = []  # (white_note, x)
 
         for white_key in white_keys:
-            w = int(44 * white_key.width)
+            w = int(44 * self.ui_scale * white_key.width)
             if white_key.note >= 0:  # Skip spacer keys
                 btn = QPushButton("", piano_container)
                 # Use full width for reliable click/drag; separators are visual via borders
-                btn.setGeometry(x_pos, 0, w, 134)
+                btn.setGeometry(x_pos, 0, w, int(134 * self.ui_scale))
                 try:
                     btn.setAttribute(Qt.WA_StyledBackground, True)
                 except Exception:
@@ -694,9 +742,9 @@ class KeyboardWidget(QWidget):
             note_in_octave = white_note % 12
             if note_in_octave in [0, 2, 5, 7, 9]:
                 black_note = white_note + 1
-                black_x = white_x + 32  # centered between adjacent whites
+                black_x = white_x + int(32 * self.ui_scale)  # centered between adjacent whites
                 btn = QPushButton("", piano_container)
-                btn.setGeometry(black_x, 0, 28, 68)
+                btn.setGeometry(black_x, 0, int(28 * self.ui_scale), int(68 * self.ui_scale))
                 try:
                     btn.setAttribute(Qt.WA_StyledBackground, True)
                 except Exception:
@@ -820,209 +868,71 @@ class KeyboardWidget(QWidget):
         root.addLayout(keys_row)
 
     def effective_note(self, base_note: int) -> int:
-        n = base_note + 12 * (self.layout_model.base_octave + self.octave_offset)
-        n = max(0, min(127, n))
-        n = quantize(n, self.layout_model.quantize_scale or "chromatic", self.layout_model.custom_scale)
-        return n
-
-    def _apply_header_button_styles(self):
-        """Apply modern, unified styles to header/controls buttons with blue activation."""
-        style = (
-            "QPushButton {"
-            "  padding: 3px 8px;"
-            "  min-height: 0px;"
-            "  font-size: 11px;"
-            "  border-radius: 4px;"
-            "  border: 1px solid #5a5f66;"
-            "  color: #eaeaea;"
-            "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
-            "      stop:0 #3b4148, stop:1 #2e343b);"
-            "}"
-            "QPushButton:hover {"
-            "  border-color: #8aaef8;"
-            "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
-            "      stop:0 #454c54, stop:1 #363c43);"
-            "}"
-            "QPushButton:pressed {"
-            "  border-color: #4aa3ff;"
-            "  background: #262e37;"
-            "  color: #ffffff;"
-            "}"
-            "QPushButton:checked {"
-            "  background-color: #4aa3ff;"
-            "  border: 1px solid #2f82e6;"
-            "  color: #ffffff;"
-            "}"
-            "QPushButton:checked:hover {"
-            "  background-color: #61b3ff;"
-            "}"
-            "QPushButton:disabled {"
-            "  color: #9aa0a6;"
-            "  background: #2a2f35;"
-            "  border-color: #3a3f44;"
-            "}"
-        )
-        # Apply to all header/compact control buttons
-        for b in (self.oct_minus_btn, self.oct_plus_btn, self.sustain_btn, self.latch_btn, self.all_off_btn):
-            try:
-                b.setStyleSheet(style)
-            except Exception:
-                pass
-
-    def _update_oct_label(self):
-        try:
-            # Keep a static label between +/- per design
-            self.oct_label.setText("Octave")
-        except Exception:
-            pass
+        """Return the effective MIDI note after octave offset."""
+        return int(base_note + 12 * (self.layout_model.base_octave + self.octave_offset))
 
     def change_octave(self, delta: int):
         # Clamp to a reasonable range to avoid running off MIDI limits
         delta = int(delta)
         new_off = max(-5, min(5, self.octave_offset + delta))
         if new_off != self.octave_offset:
-            old_off = self.octave_offset
             self.octave_offset = new_off
             self._update_oct_label()
-            # If latch is engaged, move visuals with the octave shift, but DO NOT change sounding notes
-            if getattr(self, 'latch', False):
-                oct_semitones = (self.octave_offset - old_off) * 12
-                if oct_semitones != 0:
-                    # Shift held visuals to corresponding keys if available
-                    try:
-                        # Collect current held buttons
-                        held_bases = []
-                        for btn in self.key_buttons.values():
-                            try:
-                                if btn.property('held') == 'true':
-                                    if hasattr(btn, 'key_note'):
-                                        held_bases.append(int(btn.key_note))
-                            except Exception:
-                                pass
-                        # Clear all first to avoid duplicates
-                        for btn in self.key_buttons.values():
-                            self._apply_btn_visual(btn, False, False)
-                        # Re-apply held to shifted keys
-                        for base in held_bases:
-                            # Move visuals opposite to the octave transposition to keep output notes unchanged
-                            new_base = base - oct_semitones
-                            if new_base in self.key_buttons:
-                                self._apply_btn_visual(self.key_buttons[new_base], True, True)
-                        # Final sync to ensure no strays
-                        self._sync_visuals_if_needed()
-                    except Exception:
-                        pass
 
-    # --- Wheels helpers ---
-    def _send_mod_cc(self, value: int):
-        try:
-            self.midi.cc(1, int(value), self.midi_channel)
-        except Exception:
-            pass
-
-    def _send_pitch_bend(self, value: int):
-        try:
-            self.midi.pitch_bend(int(value), self.midi_channel)
-        except Exception:
-            pass
-
-    def _center_pitch(self):
-        """Center the pitch wheel at release (0)."""
-        try:
-            if self.pitch_slider.value() != 0:
-                self.pitch_slider.setValue(0)
-        except Exception:
-            pass
-
-    def _animate_pitch_to_center(self):
-        """Animate the pitch slider smoothly back to center (0) on release."""
-        try:
-            cur = int(self.pitch_slider.value())
-        except Exception:
-            cur = 0
-        if cur == 0:
-            return
-        # Stop any existing animation
-        self._stop_pitch_anim()
-        anim = QPropertyAnimation(self.pitch_slider, b"value", self)
-        anim.setStartValue(cur)
-        anim.setEndValue(0)
-        anim.setDuration(180)  # ms; tweak if needed
-        try:
-            anim.setEasingCurve(QEasingCurve.OutCubic)
-        except Exception:
-            pass
-        # Keep a reference so GC doesn't stop it
-        self._pitch_anim = anim
-        anim.start()
-
-    def _stop_pitch_anim(self):
-        try:
-            if self._pitch_anim is not None:
-                self._pitch_anim.stop()
-        except Exception:
-            pass
-
-    def set_show_mod_wheel(self, enabled: bool):
-        self.show_mod_wheel = bool(enabled)
-        try:
-            self.mod_slider.setVisible(self.show_mod_wheel)
-            if hasattr(self, 'mod_lbl'):
-                self.mod_lbl.setVisible(self.show_mod_wheel)
-            # Show panel if either wheel is visible
-            self.left_panel.setVisible(self.show_mod_wheel or self.show_pitch_wheel)
-            self._update_left_panel_width()
-            self._sync_controls_width()
-        except Exception:
-            pass
-
-    def set_show_pitch_wheel(self, enabled: bool):
-        self.show_pitch_wheel = bool(enabled)
-        try:
-            self.pitch_slider.setVisible(self.show_pitch_wheel)
-            if hasattr(self, 'pitch_lbl'):
-                self.pitch_lbl.setVisible(self.show_pitch_wheel)
-            # Show panel if either wheel is visible
-            self.left_panel.setVisible(self.show_mod_wheel or self.show_pitch_wheel)
-            self._update_left_panel_width()
-            self._sync_controls_width()
-        except Exception:
-            pass
-
+    # --- Left panel (Mod/Pitch wheels) visibility & sizing ---
     def _update_left_panel_width(self):
-        """Adjust left panel width depending on how many wheels are visible."""
+        """Adjust left panel width based on which wheels are visible and current ui_scale."""
         try:
-            both = self.show_mod_wheel and self.show_pitch_wheel
-            one = (self.show_mod_wheel or self.show_pitch_wheel) and not both
-            if both:
-                self.left_panel.setFixedWidth(80)
-            elif one:
-                self.left_panel.setFixedWidth(44)
-            else:
-                # hidden; width doesn't matter
-                self.left_panel.setFixedWidth(44)
+            s = float(getattr(self, 'ui_scale', 1.0))
+        except Exception:
+            s = 1.0
+        show_mod = bool(getattr(self, 'show_mod_wheel', False))
+        show_pitch = bool(getattr(self, 'show_pitch_wheel', False))
+        count = (1 if show_mod else 0) + (1 if show_pitch else 0)
+        any_visible = count > 0
+        # Toggle individual widgets
+        try:
+            if hasattr(self, 'mod_slider'):
+                self.mod_slider.setVisible(show_mod)
+            if hasattr(self, 'mod_lbl'):
+                self.mod_lbl.setVisible(show_mod)
+            if hasattr(self, 'pitch_slider'):
+                self.pitch_slider.setVisible(show_pitch)
+            if hasattr(self, 'pitch_lbl'):
+                self.pitch_lbl.setVisible(show_pitch)
+        except Exception:
+            pass
+        # Update panel visibility and width
+        try:
+            self.left_panel.setVisible(any_visible)
+        except Exception:
+            pass
+        try:
+            base_single = 44
+            base_double = 80
+            target = 0
+            if count == 1:
+                target = int(base_single * s)
+            elif count >= 2:
+                target = int(base_double * s)
+            self.left_panel.setFixedWidth(max(0, target))
+            self.left_panel.updateGeometry()
+        except Exception:
+            pass
+        # Nudge layout sizing
+        try:
+            self.updateGeometry()
+            self.adjustSize()
         except Exception:
             pass
 
-    def _sync_controls_width(self):
-        """Match compact controls bar width to current piano + left panel width."""
-        try:
-            base = int(self.piano_container.width())
-        except Exception:
-            base = None
-        if base is None:
-            return
-        try:
-            extra = int(self.left_panel.width()) if self.left_panel.isVisible() else 0
-        except Exception:
-            extra = 0
-        total = base + extra
-        if hasattr(self, 'controls_widget') and self.controls_widget is not None:
-            try:
-                self.controls_widget.setFixedWidth(int(total))
-                self.controls_widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            except Exception:
-                pass
+    def set_show_mod_wheel(self, show: bool):
+        self.show_mod_wheel = bool(show)
+        self._update_left_panel_width()
+
+    def set_show_pitch_wheel(self, show: bool):
+        self.show_pitch_wheel = bool(show)
+        self._update_left_panel_width()
 
     # --- Sizing helpers ---
     def sizeHint(self) -> QSize:  # type: ignore[override]
@@ -1030,13 +940,19 @@ class KeyboardWidget(QWidget):
             width = int(self.piano_container.width())
         except Exception:
             width = 800
-        keys_h = 134
+        keys_h = int(134 * getattr(self, 'ui_scale', 1.0))
+        # Add vertical extras for header/controls when present
         if getattr(self, "_show_header", True):
-            # header(~24) + keys(134)
-            return QSize(width, 158)
+            header_h = 24  # approximate header row height
+            gap = 8  # spacer added between header and keys
+            return QSize(width, keys_h + header_h + gap)
         elif getattr(self, "_compact_controls", True):
-            # compact controls (~18) + keys(134)
-            return QSize(width, 152)
+            try:
+                controls_h = int(self.controls_widget.height())
+            except Exception:
+                controls_h = 26
+            gap = 8  # spacing between controls and keys
+            return QSize(width, keys_h + controls_h + gap)
         else:
             # keys only
             return QSize(width, keys_h)
@@ -1103,11 +1019,18 @@ class KeyboardWidget(QWidget):
             width = int(self.piano_container.width())
         except Exception:
             width = 400
-        keys_h = 134
+        keys_h = int(134 * getattr(self, 'ui_scale', 1.0))
         if getattr(self, "_show_header", True):
-            return QSize(width, 152)
+            header_h = 24
+            gap = 8
+            return QSize(width, keys_h + header_h + gap)
         elif getattr(self, "_compact_controls", True):
-            return QSize(width, 152)
+            try:
+                controls_h = int(self.controls_widget.height())
+            except Exception:
+                controls_h = 26
+            gap = 8
+            return QSize(width, keys_h + controls_h + gap)
         else:
             return QSize(width, keys_h)
 
@@ -1432,8 +1355,8 @@ class KeyboardWidget(QWidget):
             except Exception:
                 pass
         if not self.sustain:
-            # When turning sustain off, ensure no stuck notes or visuals
-            self.all_notes_off_clicked()
+            # When turning sustain off, ensure no stuck notes or visuals (no flash)
+            self._perform_all_notes_off()
 
     def toggle_sustain(self):
         """Toggle sustain invoked from the header button; sync via set_sustain."""
@@ -1453,8 +1376,8 @@ class KeyboardWidget(QWidget):
             except Exception:
                 pass
         if prev and not self.latch:
-            # When turning latch OFF, release everything immediately
-            self.all_notes_off_clicked()
+            # When turning latch OFF, release everything immediately (no flash)
+            self._perform_all_notes_off()
 
     def toggle_latch(self):
         self.set_latch(self.latch_btn.isChecked())
@@ -1530,8 +1453,8 @@ class KeyboardWidget(QWidget):
     # ---- MIDI and title helpers ----
     def set_midi_out(self, midi_out: MidiOut, port_name: str | None = None):
         """Swap the MIDI output device for this keyboard and update title."""
-        # Stop any currently sounding notes before switching
-        self.all_notes_off_clicked()
+        # Stop any currently sounding notes before switching (no flash)
+        self._perform_all_notes_off()
         self.midi = midi_out
         if port_name is not None:
             self.port_name = port_name
@@ -1545,7 +1468,15 @@ class KeyboardWidget(QWidget):
         self.setWindowTitle(f"{base}{port_suffix}{ch_suffix}")
 
     def all_notes_off_clicked(self):
-        """Clear all active notes, pressed visuals, and any drag state."""
+        """UI handler: flash blue, then clear all active notes and visuals."""
+        try:
+            self._flash_all_off_button()
+        except Exception:
+            pass
+        self._perform_all_notes_off()
+
+    def _perform_all_notes_off(self):
+        """Clear all active notes, pressed visuals, and any drag state (no flash)."""
         self.all_notes_off()
         if self.last_drag_button is not None:
             self._apply_btn_visual(self.last_drag_button, False, False)
@@ -1558,11 +1489,47 @@ class KeyboardWidget(QWidget):
         except Exception:
             pass
 
+    def _flash_all_off_button(self, duration_ms: int = 150):
+        """Temporarily set All Notes Off button to blue to indicate action, then revert."""
+        btn = getattr(self, 'all_off_btn', None)
+        if not isinstance(btn, QPushButton):
+            return
+        try:
+            base_qss = getattr(self, '_all_off_btn_base_qss', str(btn.styleSheet()))
+        except Exception:
+            base_qss = ""
+        # Blue flash style matching Sustain/Latch blue
+        flash_qss = (
+            "QPushButton {"
+            "  padding: 1px 4px;"
+            "  min-height: 0px;"
+            "  border-radius: 3px;"
+            "  color: white;"
+            "  background-color: #3498db;"
+            "  border: 1px solid #2980b9;"
+            "}"
+            "QPushButton:hover { background-color: #2f8ccc; }"
+            "QPushButton:pressed { background-color: #2a7fb8; }"
+        )
+        try:
+            btn.setStyleSheet(flash_qss)
+        except Exception:
+            return
+        # Revert after delay
+        try:
+            QTimer.singleShot(max(50, int(duration_ms)), lambda b=btn, q=base_qss: b.setStyleSheet(q))
+        except Exception:
+            # Fallback: immediate revert if timer unavailable
+            try:
+                btn.setStyleSheet(base_qss)
+            except Exception:
+                pass
+
     def set_channel(self, channel_1_based: int):
         """Set MIDI channel (1-16). Sends All Notes Off and updates title."""
         channel_1_based = max(1, min(16, channel_1_based))
         if self.midi_channel == channel_1_based - 1:
             return
-        self.all_notes_off_clicked()
+        self._perform_all_notes_off()
         self.midi_channel = channel_1_based - 1
         self.update_window_title()
