@@ -6,6 +6,17 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QPixmap, QShortcut, QKeySequence
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QUrl
+import mido
+
+# Prefer RtMidi backend; silently fall back to pygame if unavailable
+try:
+    mido.set_backend('mido.backends.rtmidi')
+except Exception:
+    try:
+        mido.set_backend('mido.backends.pygame')
+    except Exception:
+        pass
+
 from .keyboard_widget import KeyboardWidget
 from .midi_io import MidiOut, list_output_names
 from .themes import APP_STYLES
@@ -47,6 +58,11 @@ class MainWindow(QMainWindow):
             self._resize_for_layout(self.keyboard.layout_model),
             self.adjustSize()
         ))
+        # Ensure MIDI is closed cleanly on app exit
+        try:
+            self.app_ref.aboutToQuit.connect(lambda: self._safe_close_midi())
+        except Exception:
+            pass
         self._build_menus()
 
     def _build_menus(self):
@@ -717,6 +733,27 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"Octavium [Ch {self.current_channel}] - {kb_name}")
         except Exception:
             self.setWindowTitle(f"Octavium [Ch {self.current_channel}]")
+
+    def _safe_close_midi(self):
+        try:
+            if hasattr(self, 'keyboard') and hasattr(self.keyboard, 'midi') and self.keyboard.midi is not None:
+                self.keyboard.midi.close()
+        except Exception:
+            pass
+
+    def closeEvent(self, event):  # type: ignore[override]
+        # Explicitly close MIDI port before widgets are torn down
+        try:
+            self._safe_close_midi()
+        except Exception:
+            pass
+        try:
+            super().closeEvent(event)
+        except Exception:
+            try:
+                event.accept()
+            except Exception:
+                pass
 
     def _apply_show_mod_wheel(self, checked: bool):
         try:

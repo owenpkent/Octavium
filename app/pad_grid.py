@@ -285,14 +285,34 @@ class PadGridWidget(QWidget):
             """
         )
         grid_layout = QGridLayout(grid_wrap)
-        grid_layout.setContentsMargins(int(14 * self.ui_scale), int(14 * self.ui_scale), int(14 * self.ui_scale), int(14 * self.ui_scale))
         gap = int(14 * self.ui_scale)
+        # Use the same value for all margins so first/last gaps match inter-gaps
+        grid_layout.setContentsMargins(gap, gap, gap, gap)
+        # Ensure identical vertical and horizontal spacing
         grid_layout.setSpacing(gap)
+        try:
+            grid_layout.setHorizontalSpacing(gap)
+            grid_layout.setVerticalSpacing(gap)
+        except Exception:
+            pass
+        # Center the overall grid so edge gaps are symmetric, while internal spacing stays exact
         try:
             grid_layout.setAlignment(Qt.AlignCenter)
         except Exception:
             pass
         btn_size = int(96 * self.ui_scale)  # bigger pads
+        # Ensure each grid cell is exactly the button size and does not stretch
+        try:
+            total_rows = len(layout_model.rows)
+            total_cols = max((len(r.keys) for r in layout_model.rows), default=0)
+            for rr in range(total_rows):
+                grid_layout.setRowMinimumHeight(rr, btn_size)
+                grid_layout.setRowStretch(rr, 0)
+            for cc in range(total_cols):
+                grid_layout.setColumnMinimumWidth(cc, btn_size)
+                grid_layout.setColumnStretch(cc, 0)
+        except Exception:
+            pass
         # Map buttons to keys for drag handling
         self._btn_key: dict[QPushButton, KeyDef] = {}
         for r, row in enumerate(layout_model.rows):
@@ -304,10 +324,16 @@ class PadGridWidget(QWidget):
                 btn.setStyleSheet(
                     """
                     QPushButton { background: #2b2f36; color: #ddd; border: 2px solid #3b4148; border-radius: 10px; }
-                    QPushButton:hover { border: 2px solid #61b3ff; }
+                    /* Keep hover border same as normal to avoid blue outline lingering on drag */
+                    QPushButton:hover { border: 2px solid #3b4148; }
                     QPushButton:checked { background: #2f82e6; color: white; border: 2px solid #2a6fc2; }
                     """
                 )
+                # Avoid focus outline artifacts when dragging across pads
+                try:
+                    btn.setFocusPolicy(Qt.NoFocus)
+                except Exception:
+                    pass
                 # Annotate with base note so we can resolve latched visuals later
                 try:
                     btn._base_note = int(getattr(key, 'note', -1))  # type: ignore[attr-defined]
@@ -322,8 +348,25 @@ class PadGridWidget(QWidget):
                 self._btn_key[btn] = key
                 btn.pressed.connect(lambda k=key, b=btn: self._on_pad_down(k, b))
                 btn.released.connect(lambda k=key, b=btn: self._on_pad_up(k, b))
-                grid_layout.addWidget(btn, r, c, Qt.AlignCenter)
+                # Do not pass per-widget alignment; keep cells tight to button size
+                grid_layout.addWidget(btn, r, c)
                 self.buttons[(r, c)] = btn
+        # Prevent grid from expanding; set an exact fixed size based on buttons and spacing
+        try:
+            width_cols = max((len(r.keys) for r in layout_model.rows), default=0)
+            height_rows = len(layout_model.rows)
+            exact_w = width_cols * btn_size + max(0, width_cols - 1) * gap + 2 * gap
+            exact_h = height_rows * btn_size + max(0, height_rows - 1) * gap + 2 * gap
+            # Add 1px border on each side so content doesn't clip
+            exact_w += 2
+            exact_h += 2
+            grid_wrap.setFixedSize(int(exact_w), int(exact_h))
+            grid_wrap.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        except Exception:
+            try:
+                grid_wrap.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            except Exception:
+                pass
         # Save grid_wrap for drag handling and enable tracking
         self.grid_wrap = grid_wrap
         try:
@@ -331,7 +374,11 @@ class PadGridWidget(QWidget):
             self.grid_wrap.installEventFilter(self)
         except Exception:
             pass
-        root.addWidget(grid_wrap)
+        # Center the grid panel in the root layout as well
+        try:
+            root.addWidget(grid_wrap, 0, Qt.AlignCenter)
+        except Exception:
+            root.addWidget(grid_wrap)
 
         # Track active notes for sustain/latch
         self._active: set[tuple[int, int]] = set()  # (note, channel)
@@ -342,6 +389,7 @@ class PadGridWidget(QWidget):
         self.setLayout(root)
 
     def sizeHint(self) -> QSize:  # type: ignore[override]
+        # Compute the full content size so the main window can fit the header + grid without clipping
         try:
             rows = len(self.layout_model.rows)
             cols = max((len(r.keys) for r in self.layout_model.rows), default=4)
@@ -349,8 +397,8 @@ class PadGridWidget(QWidget):
             rows, cols = 4, 4
         pad = int(96 * self.ui_scale)
         gap = int(14 * self.ui_scale)
-        side = int(14 * self.ui_scale)
-        # Use the header's locked minimum height if available to avoid clipping
+        side = gap  # match grid_layout contents margins
+        # Header height: use the locked minimum to avoid clipping
         try:
             header_min = int(self.header_widget.minimumHeight())
         except Exception:
@@ -361,13 +409,17 @@ class PadGridWidget(QWidget):
         except Exception:
             base_h = int(112 * self.ui_scale)
         header_h = max(int(header_min), int(base_h))
-        panel_w = cols * pad + (cols - 1) * gap + 2 * side
-        panel_h = rows * pad + (rows - 1) * gap + 2 * side
-
+        # Grid panel size (includes equal margins and +2 for 1px border on each edge)
+        panel_w = cols * pad + (cols - 1) * gap + 2 * side + 2
+        panel_h = rows * pad + (rows - 1) * gap + 2 * side + 2
+        # Explicit spacing added between header and grid in __init__
+        try:
+            grid_spacing = int(20 * self.ui_scale)
+        except Exception:
+            grid_spacing = 20
         # Compute a conservative minimum width required by the header controls
         try:
             spacing = int(10 * self.ui_scale)
-            # Row 1 widths: checkbox + max slider width + octave controls
             slider_w = max(self.vel_slider.maximumWidth(), self.vel_range.maximumWidth())
             r1 = (
                 self.vel_random_chk.sizeHint().width()
@@ -380,7 +432,6 @@ class PadGridWidget(QWidget):
                 + spacing
                 + self.oct_plus.sizeHint().width()
             )
-            # Row 2 widths: sustain/latch/all-off buttons
             r2 = (
                 self.sustain_btn.sizeHint().width()
                 + spacing
@@ -391,9 +442,8 @@ class PadGridWidget(QWidget):
             header_min_w = max(r1, r2) + 12  # root margin buffer
         except Exception:
             header_min_w = 0
-
         content_w = max(panel_w + 12, int(header_min_w))
-        h = panel_h + header_h + 12
+        h = panel_h + header_h + grid_spacing + 12
         return QSize(int(content_w), int(h))
 
     def set_channel(self, channel_1_based: int):
@@ -554,6 +604,13 @@ class PadGridWidget(QWidget):
                                 pk = self._btn_key.get(prev)
                                 if pk is not None:
                                     self._on_pad_up(pk, prev)
+                                    # Force-clear any pressed/focus visuals to avoid lingering outline
+                                    try:
+                                        prev.setChecked(False)
+                                        prev.setDown(False)
+                                        prev.clearFocus()
+                                    except Exception:
+                                        pass
                             except Exception:
                                 pass
                         # Press new pad
