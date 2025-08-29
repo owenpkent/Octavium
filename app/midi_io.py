@@ -1,6 +1,18 @@
 import mido
 import pygame.midi
 import sys
+import importlib.util
+
+# Choose a concrete Mido backend based on availability to avoid noisy ImportErrors
+_has_rtmidi = importlib.util.find_spec('rtmidi') is not None
+try:
+    if _has_rtmidi:
+        mido.set_backend('mido.backends.rtmidi')
+    else:
+        mido.set_backend('mido.backends.pygame')
+except Exception:
+    # As a last resort, leave mido to decide at first use
+    pass
 
 class MidiOut:
     def __init__(self, port_name_contains: str | None = None):
@@ -18,10 +30,18 @@ class MidiOut:
                 if not outs:
                     raise RuntimeError("No MIDI outputs found with mido")
                 name = outs[0]
+            # If Mido is using the pygame backend, ensure pygame.midi is initialized before opening
+            try:
+                if 'pygame' in str(getattr(mido, 'backend', '')):
+                    pygame.midi.init()
+            except Exception:
+                pass
             self.port = mido.open_output(name)
             print(f"Using mido backend with port: {name}")
         except Exception as e:
-            print(f"Mido failed ({e}), trying pygame backend...")
+            # Switch to pygame backend if mido could not initialize
+            # (common when RtMidi is not installed). Keep the log concise.
+            print("Mido backend unavailable, switching to pygame backend...")
             self.use_pygame = True
             pygame.midi.init()
             
@@ -89,6 +109,30 @@ class MidiOut:
             self.port.write_short(status, lsb, msb)
         else:
             self.port.send(mido.Message("pitchwheel", pitch=v, channel=channel))
+
+    def close(self):
+        """Close MIDI port and cleanup backend safely."""
+        try:
+            if hasattr(self, 'port') and self.port is not None:
+                try:
+                    # mido ports have .close(); pygame Output has .close()
+                    self.port.close()
+                except Exception:
+                    pass
+        finally:
+            # If we explicitly used pygame backend, shut it down after closing
+            try:
+                if self.use_pygame:
+                    pygame.midi.quit()
+            except Exception:
+                pass
+
+    def __del__(self):
+        # Be resilient during interpreter shutdown
+        try:
+            self.close()
+        except Exception:
+            pass
 
 def list_output_names() -> list[str]:
     """Return a list of available MIDI output port names.

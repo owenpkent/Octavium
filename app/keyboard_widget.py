@@ -1533,3 +1533,59 @@ class KeyboardWidget(QWidget):
         self._perform_all_notes_off()
         self.midi_channel = channel_1_based - 1
         self.update_window_title()
+
+    # ---- Mod wheel / Pitch bend helpers ----
+    def _send_mod_cc(self, value: int):
+        """Send Modulation (CC1) on current channel."""
+        try:
+            v = max(0, min(127, int(value)))
+        except Exception:
+            v = 0
+        try:
+            self.midi.cc(1, v, self.midi_channel)
+        except Exception:
+            pass
+
+    def _send_pitch_bend(self, value: int):
+        """Send pitch bend value in [-8192, 8191] on current channel."""
+        try:
+            self.midi.pitch_bend(int(value), self.midi_channel)
+        except Exception:
+            pass
+
+    def _stop_pitch_anim(self):
+        anim = getattr(self, '_pitch_anim', None)
+        if anim is not None:
+            try:
+                anim.stop()
+            except Exception:
+                pass
+        self._pitch_anim = None
+
+    def _animate_pitch_to_center(self):
+        """Smoothly animate pitch wheel back to center (0) on release."""
+        try:
+            self._stop_pitch_anim()
+            anim = QPropertyAnimation(self.pitch_slider, b"value")
+            anim.setDuration(160)
+            anim.setStartValue(int(self.pitch_slider.value()))
+            anim.setEndValue(0)
+            try:
+                anim.setEasingCurve(QEasingCurve.OutCubic)
+            except Exception:
+                pass
+            # Keep a reference so GC doesn't kill the animation
+            self._pitch_anim = anim
+            def _clear_anim():
+                self._pitch_anim = None
+            try:
+                anim.finished.connect(_clear_anim)
+            except Exception:
+                pass
+            anim.start()
+        except Exception:
+            # If animation fails, snap to center
+            try:
+                self.pitch_slider.setValue(0)
+            except Exception:
+                pass
