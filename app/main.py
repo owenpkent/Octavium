@@ -10,6 +10,7 @@ from .keyboard_widget import KeyboardWidget
 from .midi_io import MidiOut, list_output_names
 from .themes import APP_STYLES
 from .piano_layout import create_piano_by_size
+from .pad_grid import PadGridWidget, create_pad_grid_layout
 
 
 class MainWindow(QMainWindow):
@@ -32,6 +33,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "MIDI Error", f"Failed to open MIDI output (hint '{port_hint}'):\n{e}")
                 raise
+        self.current_layout_type = 'piano'  # 'piano' or 'pad4x4'
         layout = create_piano_by_size(size)
         self.keyboard = KeyboardWidget(layout, midi, title=f"Piano {size}-Key -> {port_hint}", show_header=False, scale=self.current_scale)
         self.keyboard.port_name = port_hint
@@ -68,7 +70,7 @@ class MainWindow(QMainWindow):
         show_mod.setChecked(bool(self.menu_actions.get('show_mod', False)))
         show_mod.toggled.connect(lambda checked: (
             self.menu_actions.__setitem__('show_mod', bool(checked)),
-            self.keyboard.set_show_mod_wheel(checked),
+            self._apply_show_mod_wheel(checked),
             self._resize_for_layout(self.keyboard.layout_model),
             QTimer.singleShot(0, lambda: (
                 self.keyboard.adjustSize(),
@@ -82,7 +84,7 @@ class MainWindow(QMainWindow):
         show_pitch.setChecked(bool(self.menu_actions.get('show_pitch', False)))
         show_pitch.toggled.connect(lambda checked: (
             self.menu_actions.__setitem__('show_pitch', bool(checked)),
-            self.keyboard.set_show_pitch_wheel(checked),
+            self._apply_show_pitch_wheel(checked),
             self._resize_for_layout(self.keyboard.layout_model),
             QTimer.singleShot(0, lambda: (
                 self.keyboard.adjustSize(),
@@ -122,8 +124,8 @@ class MainWindow(QMainWindow):
         self.menu_actions['visual_hold'] = visual_hold
         # Apply current selections
         try:
-            self.keyboard.set_show_mod_wheel(show_mod.isChecked())
-            self.keyboard.set_show_pitch_wheel(show_pitch.isChecked())
+            self._apply_show_mod_wheel(show_mod.isChecked())
+            self._apply_show_pitch_wheel(show_pitch.isChecked())
             # Apply visual hold default (unchecked) or previous
             self.keyboard.visual_hold_on_sustain = visual_hold.isChecked()
             # Ensure styles reflect any change
@@ -198,6 +200,15 @@ class MainWindow(QMainWindow):
             self.size_group.addAction(act)
             kb_menu.addAction(act)
             self.size_actions[size] = act
+        # Separator and Pad Grid option
+        kb_menu.addSeparator()
+        pad_act = QAction("4x4 Beat Grid", self)
+        pad_act.setCheckable(True)
+        pad_act.setChecked(False)
+        pad_act.triggered.connect(lambda checked: self.set_pad_grid())
+        self.size_group.addAction(pad_act)
+        kb_menu.addAction(pad_act)
+        self.size_actions['pad4x4'] = pad_act
 
         # MIDI menu
         midi_menu = menubar.addMenu("&MIDI")
@@ -289,9 +300,11 @@ class MainWindow(QMainWindow):
         help_menu.addAction(about_action)
 
     def set_keyboard_size(self, size: int):
-        if size == self.current_size:
+        # If already on piano with the same size, do nothing; otherwise allow switch (e.g., from pad grid)
+        if size == self.current_size and getattr(self, 'current_layout_type', 'piano') == 'piano':
             return
         self.current_size = size
+        self.current_layout_type = 'piano'
         # Rebuild keyboard with same MIDI out
         layout = create_piano_by_size(size)
         new_keyboard = KeyboardWidget(layout, self.keyboard.midi, show_header=False, scale=getattr(self.keyboard, 'ui_scale', 1.0))
@@ -335,6 +348,12 @@ class MainWindow(QMainWindow):
         # Exclusive check is handled by QActionGroup, ensure correct one is checked
         if hasattr(self, 'size_actions') and size in self.size_actions:
             self.size_actions[size].setChecked(True)
+        # Uncheck pad grid if present
+        try:
+            if hasattr(self, 'size_actions') and 'pad4x4' in self.size_actions:
+                self.size_actions['pad4x4'].setChecked(False)
+        except Exception:
+            pass
         # Resize window for the new layout (immediate + deferred)
         self._resize_for_layout(layout)
         self.keyboard.adjustSize()
@@ -390,6 +409,12 @@ class MainWindow(QMainWindow):
             win.set_zoom(curr_scale)
         except Exception:
             pass
+        # If current layout is pad grid, switch the new window as well
+        try:
+            if getattr(self, 'current_layout_type', 'piano') == 'pad4x4':
+                win.set_pad_grid()
+        except Exception:
+            pass
         # Keep reference on QApplication to prevent GC
         if not hasattr(self.app_ref, "_windows"):
             self.app_ref._windows = []  # type: ignore[attr-defined]
@@ -411,14 +436,31 @@ class MainWindow(QMainWindow):
         if abs(curr - scale) < 1e-6:
             return
         self.current_scale = scale
-        # Rebuild keyboard with same layout and MIDI out, preserving state
-        layout = create_piano_by_size(self.current_size)
-        new_keyboard = KeyboardWidget(layout, self.keyboard.midi, show_header=False, scale=scale)
-        new_keyboard.port_name = self.keyboard.port_name
-        new_keyboard.update_window_title()
-        self.setCentralWidget(new_keyboard)
-        self.keyboard.deleteLater()
-        self.keyboard = new_keyboard
+        # Rebuild central widget with same layout type and MIDI out, preserving state
+        if getattr(self, 'current_layout_type', 'piano') == 'pad4x4':
+            layout = create_pad_grid_layout(4, 4)
+            new_widget = PadGridWidget(layout, self.keyboard.midi, scale=scale)
+            try:
+                new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        else:
+            layout = create_piano_by_size(self.current_size)
+            new_widget = KeyboardWidget(layout, self.keyboard.midi, show_header=False, scale=scale)
+            try:
+                new_widget.port_name = self.keyboard.port_name  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            try:
+                new_widget.update_window_title()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        self.setCentralWidget(new_widget)
+        try:
+            self.keyboard.deleteLater()
+        except Exception:
+            pass
+        self.keyboard = new_widget  # keep attribute name consistent
         # Restore channel
         try:
             self.keyboard.set_channel(self.current_channel)
@@ -426,8 +468,8 @@ class MainWindow(QMainWindow):
             pass
         # Restore view menu selections
         try:
-            self.keyboard.set_show_mod_wheel(bool(self.menu_actions.get('show_mod', False)))
-            self.keyboard.set_show_pitch_wheel(bool(self.menu_actions.get('show_pitch', False)))
+            self._apply_show_mod_wheel(bool(self.menu_actions.get('show_mod', False)))
+            self._apply_show_pitch_wheel(bool(self.menu_actions.get('show_pitch', False)))
             self.keyboard.visual_hold_on_sustain = bool(self.menu_actions.get('visual_hold_checked', False))
         except Exception:
             pass
@@ -476,67 +518,90 @@ class MainWindow(QMainWindow):
         """Resize the window to fit current keyboard content width.
         Prefers the actual `piano_container.width()`; falls back to `columns * 44`.
         """
-        # Compute content width from piano + optional left panel and controls (whichever is wider)
-        content_width = None
-        if hasattr(self, 'keyboard') and hasattr(self.keyboard, 'piano_container'):
+        # Prefer the central widget's own size hint; this works for both piano and pad grid.
+        try:
+            kb_hint = self.keyboard.sizeHint()
+            content_width = int(kb_hint.width())
+            content_height = int(kb_hint.height())
+        except Exception:
+            content_width = None
+            content_height = None
+
+        if content_width is None or content_height is None:
+            # Compute content width from piano + optional left panel and controls (whichever is wider)
+            content_width = None
+            if hasattr(self, 'keyboard') and hasattr(self.keyboard, 'piano_container'):
+                try:
+                    w_piano = int(self.keyboard.piano_container.width())
+                except Exception:
+                    w_piano = None
+                # Include left panel (wheels) width when visible
+                try:
+                    left_panel = getattr(self.keyboard, 'left_panel', None)
+                    w_left = int(left_panel.width()) if (left_panel is not None and left_panel.isVisible()) else 0
+                except Exception:
+                    w_left = 0
+                try:
+                    controls_widget = getattr(self.keyboard, 'controls_widget', None)
+                    w_controls = int(controls_widget.width()) if controls_widget is not None else 0
+                except Exception:
+                    w_controls = 0
+                if w_piano is not None:
+                    content_width = max(w_piano + w_left, w_controls)
+            if content_width is None:
+                try:
+                    columns = getattr(layout, 'columns', 36) or 36
+                except Exception:
+                    columns = 36
+                # Respect current UI scale as used by KeyboardWidget
+                try:
+                    scale = float(getattr(self.keyboard, 'ui_scale', 1.0))
+                except Exception:
+                    scale = 1.0
+                content_width = int(columns * 44 * scale)  # matches KeyboardWidget white key base width
+            # Height: central widget hint if available
             try:
-                w_piano = int(self.keyboard.piano_container.width())
+                content_height = max(self.keyboard.minimumSizeHint().height(), self.keyboard.sizeHint().height())
             except Exception:
-                w_piano = None
-            # Include left panel (wheels) width when visible
-            try:
-                left_panel = getattr(self.keyboard, 'left_panel', None)
-                w_left = int(left_panel.width()) if (left_panel is not None and left_panel.isVisible()) else 0
-            except Exception:
-                w_left = 0
-            try:
-                controls_widget = getattr(self.keyboard, 'controls_widget', None)
-                w_controls = int(controls_widget.width()) if controls_widget is not None else 0
-            except Exception:
-                w_controls = 0
-            if w_piano is not None:
-                content_width = max(w_piano + w_left, w_controls)
-        if content_width is None:
-            try:
-                columns = getattr(layout, 'columns', 36) or 36
-            except Exception:
-                columns = 36
-            # Respect current UI scale as used by KeyboardWidget
-            try:
-                scale = float(getattr(self.keyboard, 'ui_scale', 1.0))
-            except Exception:
-                scale = 1.0
-            content_width = int(columns * 44 * scale)  # matches KeyboardWidget white key base width
+                content_height = 180
 
         side_padding = 56  # modest side padding for window chrome
-        target_width = content_width + side_padding
-        # Height: central widget (keyboard) hint + menubar height
-        try:
-            kb_h = max(self.keyboard.minimumSizeHint().height(), self.keyboard.sizeHint().height())
-        except Exception:
-            kb_h = 180
+        target_width = int(content_width + side_padding)
+        # Height: add menubar height + margin
         try:
             menu_h = self.menuBar().sizeHint().height()
         except Exception:
             menu_h = 0
-        # Add a small safety margin to avoid bottom clipping at higher zoom / OS DPI
-        vertical_padding = 12
-        target_height = int(kb_h + menu_h + vertical_padding)
-        # Ensure we can shrink down (e.g., 25 keys)
-        target_width = int(target_width)
-        # Update child geometry first
+        # Safety buffer to ensure the menu is never clipped (accounts for DPI/titlebar quirks)
+        vertical_padding = 32
+        target_height = int(content_height + menu_h + vertical_padding)
+
+        # Update child geometry (piano-specific safe guard)
         try:
-            self.keyboard.piano_container.updateGeometry()
+            if hasattr(self.keyboard, 'piano_container'):
+                self.keyboard.piano_container.updateGeometry()
             self.keyboard.updateGeometry()
         except Exception:
             pass
-        # Force central widget width to exactly the content width (no internal padding)
-        try:
-            self.keyboard.setMinimumWidth(int(content_width))
-            self.keyboard.setMaximumWidth(int(content_width))
-            self.keyboard.setFixedWidth(int(content_width))
-        except Exception:
-            pass
+
+        # For piano widgets, we constrain width to content_width to prevent stretching.
+        # For pad grid, we let its fixed sizeHint govern; do not force setFixedWidth.
+        is_pad = isinstance(self.keyboard, PadGridWidget)
+        if not is_pad:
+            try:
+                self.keyboard.setMinimumWidth(int(content_width))
+                self.keyboard.setMaximumWidth(int(content_width))
+                self.keyboard.setFixedWidth(int(content_width))
+            except Exception:
+                pass
+        else:
+            try:
+                # Ensure pad grid uses its hint without external constraints
+                self.keyboard.setMinimumSize(self.keyboard.sizeHint())
+                self.keyboard.setMaximumSize(self.keyboard.sizeHint())
+            except Exception:
+                pass
+
         # Temporarily drop min/max to allow shrinking, then resize, then release
         self.setMinimumSize(0, 0)
         self.setMaximumSize(target_width, target_height)
@@ -652,6 +717,60 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"Octavium [Ch {self.current_channel}] - {kb_name}")
         except Exception:
             self.setWindowTitle(f"Octavium [Ch {self.current_channel}]")
+
+    def _apply_show_mod_wheel(self, checked: bool):
+        try:
+            fn = getattr(self.keyboard, 'set_show_mod_wheel', None)
+            if callable(fn):
+                fn(bool(checked))
+        except Exception:
+            pass
+
+    def _apply_show_pitch_wheel(self, checked: bool):
+        try:
+            fn = getattr(self.keyboard, 'set_show_pitch_wheel', None)
+            if callable(fn):
+                fn(bool(checked))
+        except Exception:
+            pass
+
+    def set_pad_grid(self):
+        """Switch to a 4x4 beat grid layout/widget."""
+        try:
+            self.current_layout_type = 'pad4x4'
+            layout = create_pad_grid_layout(4, 4)
+            new_widget = PadGridWidget(layout, self.keyboard.midi, scale=getattr(self.keyboard, 'ui_scale', 1.0))
+            try:
+                new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self.setCentralWidget(new_widget)
+            try:
+                self.keyboard.deleteLater()
+            except Exception:
+                pass
+            self.keyboard = new_widget
+            self.keyboard.set_channel(self.current_channel)
+            # Update menu checks
+            try:
+                for k, act in getattr(self, 'size_actions', {}).items():
+                    if isinstance(k, int):
+                        act.setChecked(False)
+                if 'pad4x4' in self.size_actions:
+                    self.size_actions['pad4x4'].setChecked(True)
+            except Exception:
+                pass
+            self._update_window_title()
+            self._resize_for_layout(layout)
+            self.keyboard.adjustSize()
+            self.adjustSize()
+            QTimer.singleShot(0, lambda: (
+                self.keyboard.adjustSize(),
+                self._resize_for_layout(layout),
+                self.adjustSize()
+            ))
+        except Exception:
+            pass
 
 def run():
     app = QApplication(sys.argv)
