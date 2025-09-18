@@ -670,6 +670,8 @@ class KeyboardWidget(QWidget):
             self.piano_container.installEventFilter(self)
         except Exception:
             pass
+        # Track last hovered key for explicit hover visuals
+        self._last_hover_btn: QPushButton | None = None
         
         # Create white keys first (they go in the background)
         white_keys = self.layout_model.rows[0].keys
@@ -682,6 +684,11 @@ class KeyboardWidget(QWidget):
                 btn = QPushButton("", piano_container)
                 # Use full width for reliable click/drag; separators are visual via borders
                 btn.setGeometry(x_pos, 0, w, int(134 * self.ui_scale))
+                # Enable per-button mouse tracking so :hover updates while dragging across keys
+                try:
+                    btn.setMouseTracking(True)
+                except Exception:
+                    pass
                 try:
                     btn.setAttribute(Qt.WA_StyledBackground, True)
                 except Exception:
@@ -696,13 +703,23 @@ class KeyboardWidget(QWidget):
                         border-bottom: 2px solid #bbbbbb; /* subtle bottom lip */
                         border-radius: 0px;
                     }}
-                    /* Put hover BEFORE held so held wins when both apply */
-                    QPushButton:hover {{
+                    /* Explicit hover property, not Qt :hover, so we control it during drag */
+                    QPushButton[hovered="true"] {{
+                        /* Darken slightly on hover for white keys */
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #ffffff, stop:0.5 #f9f9f9, stop:1 #f0f0f0);
+                            stop:0 #f2f2f2, stop:0.5 #e8e8e8, stop:1 #dddddd);
                     }}
                     QPushButton[active="true"] {{
                         /* Fill entire key with activation blue */
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #6bb8ff, stop:1 #2f82e6);
+                        border-top: 1px solid #2f82e6;
+                        border-left: 1px solid #2f82e6;
+                        border-right: 1px solid #2f82e6;
+                        border-bottom: 2px solid #1b64c7;
+                    }}
+                    /* Keep active look even when hovered */
+                    QPushButton[active="true"]:hover {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                             stop:0 #6bb8ff, stop:1 #2f82e6);
                         border-top: 1px solid #2f82e6;
@@ -745,6 +762,11 @@ class KeyboardWidget(QWidget):
                 black_x = white_x + int(32 * self.ui_scale)  # centered between adjacent whites
                 btn = QPushButton("", piano_container)
                 btn.setGeometry(black_x, 0, int(28 * self.ui_scale), int(68 * self.ui_scale))
+                # Ensure hover state updates during press-drag transitions
+                try:
+                    btn.setMouseTracking(True)
+                except Exception:
+                    pass
                 try:
                     btn.setAttribute(Qt.WA_StyledBackground, True)
                 except Exception:
@@ -759,13 +781,23 @@ class KeyboardWidget(QWidget):
                         border-bottom: 2px solid #0b0b0b;
                         border-radius: 3px;
                     }
-                    /* Put hover BEFORE held so held wins when both apply */
-                    QPushButton:hover {
+                    /* Explicit hover property, not Qt :hover */
+                    QPushButton[hovered="true"] {
+                        /* Lighten slightly on hover for black keys */
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #3b3b3b, stop:0.5 #191919, stop:1 #060606);
+                            stop:0 #484848, stop:0.5 #222222, stop:1 #0a0a0a);
                     }
                     QPushButton[active="true"] {
                         /* Fill entire key with activation blue */
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #4aa3ff, stop:1 #2f82e6);
+                        border-top: 1px solid #2f82e6;
+                        border-left: 1px solid #2f82e6;
+                        border-right: 1px solid #2f82e6;
+                        border-bottom: 2px solid #0a0a0a;
+                    }
+                    /* Keep active look even when hovered */
+                    QPushButton[active="true"]:hover {
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                             stop:0 #4aa3ff, stop:1 #2f82e6);
                         border-top: 1px solid #2f82e6;
@@ -953,9 +985,6 @@ class KeyboardWidget(QWidget):
                 controls_h = 26
             gap = 8  # spacing between controls and keys
             return QSize(width, keys_h + controls_h + gap)
-        else:
-            # keys only
-            return QSize(width, keys_h)
 
     # --- Visual helpers ---
     def _apply_btn_visual(self, btn: QPushButton | None, down: bool, held: bool):
@@ -990,6 +1019,20 @@ class KeyboardWidget(QWidget):
         except Exception:
             pass
 
+    def _set_hover(self, btn: QPushButton | None, hovered: bool):
+        """Set or clear the explicit hovered visual on a key button."""
+        if btn is None:
+            return
+        try:
+            btn.setProperty('hovered', 'true' if hovered else 'false')
+            st = btn.style()
+            if st is not None:
+                st.unpolish(btn)
+                st.polish(btn)
+            btn.update()
+        except Exception:
+            pass
+
     def _apply_note_visual(self, note: int, down: bool, held: bool):
         try:
             btn = self.key_buttons.get(note)
@@ -997,58 +1040,46 @@ class KeyboardWidget(QWidget):
             btn = None
         self._apply_btn_visual(btn, down, held)
 
-    def _sync_visuals_if_needed(self):
-        """When neither sustain nor latch is enabled, ensure no stray 'held' visuals remain
-        for keys that aren't in active_notes. This helps avoid 'stuck' pressed looks after
-        complex drags.
-        """
-        if getattr(self, 'sustain', False) or getattr(self, 'latch', False):
-            return
-        ch = self.midi_channel
+    def _clear_all_key_visuals_except(self, except_btn: QPushButton | None):
+        """Clear active/held visuals from every key except the provided one."""
         try:
-            active = set(self.active_notes)
+            for b in self.key_buttons.values():
+                if b is except_btn:
+                    continue
+                self._apply_btn_visual(b, False, False)
         except Exception:
-            active = set()
-        for base_note, btn in self.key_buttons.items():
-            eff = self.effective_note(base_note)
-            if (eff, ch) not in active:
-                self._apply_btn_visual(btn, False, False)
+            pass
 
-    def minimumSizeHint(self) -> QSize:  # type: ignore[override]
+    def _sync_visuals_if_needed(self):
+        """When neither sustain nor latch is enabled, ensure no stray 'held' or 'active'
+        visuals remain for keys that aren't in active_notes.
+        """
         try:
-            width = int(self.piano_container.width())
+            if getattr(self, 'sustain', False) or getattr(self, 'latch', False):
+                return
+            ch = int(getattr(self, 'midi_channel', 0))
+            active = set(getattr(self, 'active_notes', set()))
+            for base_note, btn in list(self.key_buttons.items()):
+                eff = self.effective_note(base_note)
+                if (eff, ch) not in active:
+                    self._apply_btn_visual(btn, False, False)
         except Exception:
-            width = 400
-        keys_h = int(134 * getattr(self, 'ui_scale', 1.0))
-        if getattr(self, "_show_header", True):
-            header_h = 24
-            gap = 8
-            return QSize(width, keys_h + header_h + gap)
-        elif getattr(self, "_compact_controls", True):
-            try:
-                controls_h = int(self.controls_widget.height())
-            except Exception:
-                controls_h = 26
-            gap = 8
-            return QSize(width, keys_h + controls_h + gap)
-        else:
-            return QSize(width, keys_h)
+            pass
 
     def on_key_press(self, key: KeyDef):
         base_note = key.note
         note = self.effective_note(base_note)
         ch = self.midi_channel
-        # Latch mode: pressing a sounding note turns it off; otherwise turns it on and keeps it on
+        # Latch handling: toggle if already active
         if getattr(self, 'latch', False):
             if (note, ch) in self.active_notes:
-                # Turn it off
                 try:
                     self.midi.note_off(note, ch)
                 except Exception:
                     pass
                 self.active_notes.discard((note, ch))
-                # Remove from voice order if present
                 try:
+                    # remove from voice order
                     for i, (n, c, b) in enumerate(list(self._voice_order)):
                         if n == note and c == ch:
                             self._voice_order.pop(i)
@@ -1057,30 +1088,13 @@ class KeyboardWidget(QWidget):
                     pass
                 self._apply_note_visual(base_note, False, False)
                 return
-            # Otherwise, ensure polyphony limit before latching this note
-            if getattr(self, 'polyphony_enabled', False):
-                try:
-                    current_voices = len(self.active_notes)
-                except Exception:
-                    current_voices = 0
-                if current_voices >= max(1, int(getattr(self, 'polyphony_max', 8))):
-                    if self._voice_order:
-                        old_note, old_ch, old_base = self._voice_order.pop(0)
-                        try:
-                            self.midi.note_off(old_note, old_ch)
-                        except Exception:
-                            pass
-                        self.active_notes.discard((old_note, old_ch))
-                        self._apply_note_visual(old_base, False, False)
-        
-        # Enforce polyphony limit: steal oldest if necessary
+        # Polyphony enforce (steal oldest)
         if getattr(self, 'polyphony_enabled', False):
             try:
                 current_voices = len(self.active_notes)
             except Exception:
                 current_voices = 0
             if current_voices >= max(1, int(getattr(self, 'polyphony_max', 8))):
-                # Steal the oldest voice
                 if self._voice_order:
                     old_note, old_ch, old_base = self._voice_order.pop(0)
                     try:
@@ -1088,28 +1102,35 @@ class KeyboardWidget(QWidget):
                     except Exception:
                         pass
                     self.active_notes.discard((old_note, old_ch))
-                    # Clear its visual regardless of sustain
                     self._apply_note_visual(old_base, False, False)
-        vel = self._compute_velocity(int(key.velocity))
-        self.midi.note_on(note, vel, ch)
+        # Send note_on
+        vel = self._compute_velocity(int(getattr(key, 'velocity', 100)))
+        try:
+            self.midi.note_on(note, vel, ch)
+        except Exception:
+            pass
         self.active_notes.add((note, ch))
         self._voice_order.append((note, ch, base_note))
-        # Ensure the corresponding key button shows as pressed (by base note)
         self._apply_note_visual(base_note, True, False)
-        
-        # Set dragging state only when neither latch nor sustain is active
+        # Begin drag tracking if neither latch nor sustain
         if not getattr(self, 'latch', False) and not getattr(self, 'sustain', False):
             self.dragging = True
             self.last_drag_key = key
             self._last_drag_note_base = key.note
-            # Track and visually press the originating button
             sender = self.sender()
             if isinstance(sender, QPushButton):
+                try:
+                    sender.setProperty('hoveroff', 'false')
+                    st0 = sender.style(); st0 and st0.unpolish(sender); st0 and st0.polish(sender)
+                except Exception:
+                    pass
+                try:
+                    self._set_hover(sender, False)
+                except Exception:
+                    pass
                 self.last_drag_button = sender
                 self._apply_btn_visual(self.last_drag_button, True, False)
-                # From the outset of a drag, ensure only this button is active
                 self._clear_other_actives(self.last_drag_button)
-            # Capture the mouse so we keep receiving move/release events even if cursor leaves
             try:
                 self.piano_container.grabMouse()
             except Exception:
@@ -1118,21 +1139,20 @@ class KeyboardWidget(QWidget):
     def on_key_release(self, key: KeyDef):
         base_note = key.note
         note = self.effective_note(base_note)
-        # In latch mode, reflect the actual latched state on release
+        ch = self.midi_channel
+        # Latch: reflect latched state
         if getattr(self, 'latch', False):
-            ch = self.midi_channel
             if (note, ch) in self.active_notes:
-                # Still latched: keep held visual
                 self._apply_note_visual(base_note, True, True)
             else:
-                # Was toggled off on press: clear visual
                 self._apply_note_visual(base_note, False, False)
             return
-        if not self.sustain:
-            ch = self.midi_channel
-            self.midi.note_off(note, ch)
+        if not getattr(self, 'sustain', False):
+            try:
+                self.midi.note_off(note, ch)
+            except Exception:
+                pass
             self.active_notes.discard((note, ch))
-            # Remove from voice order if present
             try:
                 for i, (n, c, b) in enumerate(list(self._voice_order)):
                     if n == note and c == ch:
@@ -1140,59 +1160,65 @@ class KeyboardWidget(QWidget):
                         break
             except Exception:
                 pass
-            # Clear visual when not sustaining
             self._apply_note_visual(base_note, False, False)
-            # Also ensure no other strays
             self._sync_visuals_if_needed()
         else:
-            # Sustaining: always clear visual on release; audio remains sustained
+            # sustain on: clear visuals but keep sounding
             self._apply_note_visual(base_note, False, False)
-            # Also ensure no other key remains visually active due to sustain
             self._clear_other_actives(None)
-            # Reinforce after event processing: clear all key visuals
-            try:
-                def _clear_all_keys():
-                    try:
-                        for b in self.key_buttons.values():
-                            self._apply_btn_visual(b, False, False)
-                    except Exception:
-                        pass
-                QTimer.singleShot(0, _clear_all_keys)
-            except Exception:
-                pass
-        # Extra safety: explicitly clear the actual sender button's visual
-        try:
-            sender_btn = self.sender()
-            if isinstance(sender_btn, QPushButton):
-                self._apply_btn_visual(sender_btn, False, False)
-                # Reinforce after event processing in case of ordering/race
-                try:
-                    QTimer.singleShot(0, lambda b=sender_btn: self._apply_btn_visual(b, False, False))
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        # Ensure drag state is stopped on a normal click release (not just via eventFilter)
+        # Stop basic click drag
         if not getattr(self, 'latch', False):
             self.dragging = False
             self.last_drag_key = None
             self._last_drag_note_base = None
-            # Clear any lingering reference button so drag logic can't re-press it on move
             if self.last_drag_button is not None:
                 self.last_drag_button = None
-        # Do NOT clear dragging here. We only stop dragging on actual mouse button
-        # release handled by eventFilter/mouseReleaseEvent so that drag can traverse
-        # across multiple keys smoothly.
 
     def eventFilter(self, obj, event):
         """Global event filter to handle drag across child buttons reliably."""
+        # If leaving a key while dragging, ensure its active visual is cleared immediately
+        try:
+            if isinstance(obj, QPushButton) and hasattr(obj, 'key_note') and event.type() == QEvent.Leave:
+                if getattr(self, 'dragging', False):
+                    # Clear this button's pressed/held visuals and explicit hover
+                    self._apply_btn_visual(obj, False, False)
+                    try:
+                        self._set_hover(obj, False)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        # Maintain explicit hover state on the key under the cursor
+        try:
+            if obj is getattr(self, 'piano_container', None) and event.type() == QEvent.MouseMove:
+                try:
+                    gp = event.globalPosition().toPoint()
+                except AttributeError:
+                    gp = event.globalPos()
+                pos = self.piano_container.mapFromGlobal(gp)
+                w = self.piano_container.childAt(pos)
+                if isinstance(w, QPushButton) and hasattr(w, 'key_note'):
+                    if w is not self._last_hover_btn:
+                        # Clear previous hover
+                        if self._last_hover_btn is not None:
+                            self._set_hover(self._last_hover_btn, False)
+                        # Set new hover
+                        self._set_hover(w, True)
+                        self._last_hover_btn = w
+                else:
+                    # Not over any key: clear previous hover
+                    if self._last_hover_btn is not None:
+                        self._set_hover(self._last_hover_btn, False)
+                        self._last_hover_btn = None
+        except Exception:
+            pass
         # Even when not dragging: if sustain is on, ensure a click release clears visuals
         if event.type() == QEvent.MouseButtonRelease and getattr(self, 'sustain', False):
             try:
                 if isinstance(obj, QPushButton) and hasattr(obj, 'key_note'):
                     self._apply_btn_visual(obj, False, False)
                     self._clear_other_actives(None)
-                    # Reinforce after event loop
+                    # Reinforce after event processing to avoid any transient re-activation
                     QTimer.singleShot(0, lambda b=obj: self._apply_btn_visual(b, False, False))
             except Exception:
                 pass
@@ -1209,37 +1235,64 @@ class KeyboardWidget(QWidget):
                     gp = event.globalPos()
                 container_pos = self.piano_container.mapFromGlobal(gp)
                 widget_under = self.piano_container.childAt(container_pos)
+                # Fail-safe: clear all other actives up-front based on current pointer target
+                if isinstance(widget_under, QPushButton) and hasattr(widget_under, 'key_note'):
+                    self._clear_all_key_visuals_except(widget_under)
+                else:
+                    self._clear_all_key_visuals_except(None)
                 # If we're no longer over the previously pressed button, clear its pressed visual immediately
                 if self.last_drag_button is not None and widget_under is not self.last_drag_button:
                     self._apply_btn_visual(self.last_drag_button, False, False)
+                    # Keep previous key's hover suppressed while dragging over a different key (e.g., black over white)
+                    try:
+                        self.last_drag_button.setProperty('hoveroff', 'true')
+                        st = self.last_drag_button.style()
+                        if st is not None:
+                            st.unpolish(self.last_drag_button)
+                            st.polish(self.last_drag_button)
+                        self.last_drag_button.update()
+                    except Exception:
+                        pass
+                    # Also ensure its explicit hover is cleared
+                    if self._last_hover_btn is self.last_drag_button:
+                        self._set_hover(self.last_drag_button, False)
+                        self._last_hover_btn = None
+
                 # Only suppress switching if the cursor is still within the original button
-                # AND there isn't a different key under the cursor. This allows switching to
-                # Only keep the last key visually down if the cursor is directly over that same button
-                if isinstance(widget_under, QPushButton) and widget_under is self.last_drag_button:
-                    self._apply_btn_visual(self.last_drag_button, True, False)
-                    # Ensure no other keys remain visually active
-                    self._clear_other_actives(self.last_drag_button)
-                    return False
+                # AND there isn't a different key under the cursor. Otherwise, switch notes/visuals.
                 if isinstance(widget_under, QPushButton) and hasattr(widget_under, 'key_note'):
                     base = widget_under.key_note
                     current_note = self.effective_note(base)
                     prev_eff = self.effective_note(self._last_drag_note_base) if self._last_drag_note_base is not None else None
                     if prev_eff is None or current_note != prev_eff:
-                        # Stop previous
+                        # Stop previous note if any
                         if self._last_drag_note_base is not None and not self.sustain and not getattr(self, 'latch', False):
-                            prev_note = prev_eff  # already computed
+                            prev_note = prev_eff  # computed above
                             ch = self.midi_channel
                             self.midi.note_off(prev_note, ch)
                             self.active_notes.discard((prev_note, ch))
                         # Update previous button visual (always clear during drag)
                         if self.last_drag_button is not None and self.last_drag_button is not widget_under:
                             self._apply_btn_visual(self.last_drag_button, False, False)
+                            try:
+                                self.last_drag_button.setProperty('hoveroff', 'true')
+                                st3 = self.last_drag_button.style()
+                                if st3 is not None:
+                                    st3.unpolish(self.last_drag_button)
+                                    st3.polish(self.last_drag_button)
+                                self.last_drag_button.update()
+                            except Exception:
+                                pass
+                            # Clear explicit hover on previous key
+                            if self._last_hover_btn is self.last_drag_button:
+                                self._set_hover(self.last_drag_button, False)
+                                self._last_hover_btn = None
+
                         # Start new
                         vel = self._compute_velocity(100)
                         ch = self.midi_channel
                         if not getattr(self, 'latch', False):
                             self.midi.note_on(current_note, vel, ch)
-                            self.active_notes.add((current_note, ch))
                         # Update current button visual and references
                         self._apply_btn_visual(widget_under, True, False)
                         self.last_drag_button = widget_under
@@ -1257,11 +1310,26 @@ class KeyboardWidget(QWidget):
                     if self.last_drag_button is not None:
                         # Always clear visual during drag when not over any key
                         self._apply_btn_visual(self.last_drag_button, False, False)
+                        # Keep hover suppressed during drag to avoid ghost hover until drag end
+                        try:
+                            self.last_drag_button.setProperty('hoveroff', 'true')
+                            st4 = self.last_drag_button.style()
+                            if st4 is not None:
+                                st4.unpolish(self.last_drag_button)
+                                st4.polish(self.last_drag_button)
+                            self.last_drag_button.update()
+                        except Exception:
+                            pass
+                    # And clear explicit hover
+                    if self._last_hover_btn is self.last_drag_button:
+                        self._set_hover(self.last_drag_button, False)
+                        self._last_hover_btn = None
+
                     self._last_drag_note_base = None
                     self.last_drag_key = None
                     self.last_drag_button = None
                     # Ensure no keys remain visually active when off any key
-                    self._clear_other_actives(None)
+                    self._clear_all_key_visuals_except(None)
                 return False
             # Ensure release anywhere stops dragging and releases note
             if event.type() == QEvent.MouseButtonRelease:
@@ -1283,9 +1351,25 @@ class KeyboardWidget(QWidget):
                             QTimer.singleShot(0, lambda b=btn_ref: self._apply_btn_visual(b, False, False))
                         except Exception:
                             pass
+                # Clear hover suppression and visuals on whichever button was last
+                if self.last_drag_button is not None:
+                    try:
+                        self.last_drag_button.setProperty('hoveroff', 'false')
+                        st5 = self.last_drag_button.style()
+                        if st5 is not None:
+                            st5.unpolish(self.last_drag_button)
+                            st5.polish(self.last_drag_button)
+                        self.last_drag_button.update()
+                    except Exception:
+                        pass
+                # Clear any explicit hover state on release
+                if self._last_hover_btn is not None:
+                    self._set_hover(self._last_hover_btn, False)
+                    self._last_hover_btn = None
                 self._last_drag_note_base = None
                 self.last_drag_key = None
                 self.last_drag_button = None
+
                 # Normalize visuals in case of missed transitions
                 self._sync_visuals_if_needed()
                 # Release mouse capture
@@ -1328,11 +1412,21 @@ class KeyboardWidget(QWidget):
                 ch = self.midi_channel
                 self.midi.note_off(note, ch)
                 self.active_notes.discard((note, ch))
-            # Clear visuals
+            # Clear visuals and restore hover
             if self.last_drag_button is not None:
                 if not getattr(self, 'latch', False):
                     # Always clear visuals on release; sustain should not keep visuals held
                     self._apply_btn_visual(self.last_drag_button, False, False)
+                # Restore normal hover behavior
+                try:
+                    self.last_drag_button.setProperty('hoveroff', 'false')
+                    st_restore = self.last_drag_button.style()
+                    if st_restore is not None:
+                        st_restore.unpolish(self.last_drag_button)
+                        st_restore.polish(self.last_drag_button)
+                    self.last_drag_button.update()
+                except Exception:
+                    pass
             self._last_drag_note_base = None
             self.last_drag_key = None
             self.last_drag_button = None
@@ -1423,6 +1517,11 @@ class KeyboardWidget(QWidget):
                     continue
                 # Unconditionally clear both active and held for all others
                 self._apply_btn_visual(b, False, False)
+                # Also clear any explicit hovered state on others
+                try:
+                    self._set_hover(b, False)
+                except Exception:
+                    pass
         except Exception:
             pass
 

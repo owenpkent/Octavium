@@ -20,6 +20,8 @@ def create_pad_grid_layout(rows: int = 4, cols: int = 4, start_note: int = 36) -
             row_keys.append(KeyDef(label="", note=note, width=1.0, height=1.0, velocity=110, channel=9))
             note += 1
         keys_rows.append(RowDef(keys=row_keys))
+    # Flip vertical order so higher notes are at the top row and lower at the bottom
+    keys_rows = list(reversed(keys_rows))
     return Layout(
         name=f"Pad Grid {rows}x{cols}",
         rows=keys_rows,

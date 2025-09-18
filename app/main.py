@@ -437,6 +437,36 @@ class MainWindow(QMainWindow):
         self.app_ref._windows.append(win)  # type: ignore[attr-defined]
         win.show()
 
+    def set_channel(self, channel: int):
+        """Set the global MIDI channel (1-16) and update the current keyboard widget and UI."""
+        try:
+            ch = int(channel)
+        except Exception:
+            ch = 1
+        if ch < 1:
+            ch = 1
+        if ch > 16:
+            ch = 16
+        self.current_channel = ch
+        # Apply to current keyboard widget
+        try:
+            if hasattr(self, 'keyboard') and self.keyboard is not None:
+                self.keyboard.set_channel(ch)
+        except Exception:
+            pass
+        # Update menu checkmarks if the group exists
+        try:
+            if hasattr(self, 'channel_group') and self.channel_group is not None:
+                for act in self.channel_group.actions():
+                    try:
+                        act.setChecked(int(act.text()) == ch)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        # Refresh window title
+        self._update_window_title()
+
     def set_zoom(self, scale: float):
         try:
             scale = float(scale)
