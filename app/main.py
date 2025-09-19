@@ -1,7 +1,8 @@
 import sys
 from datetime import datetime
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QMenu, QInputDialog, QMessageBox
+    QApplication, QMainWindow, QMenu, QInputDialog, QMessageBox,
+    QDialog, QDialogButtonBox, QFormLayout, QComboBox, QLabel
 )
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QPixmap, QShortcut, QKeySequence
 from pathlib import Path
@@ -22,6 +23,9 @@ from .midi_io import MidiOut, list_output_names
 from .themes import APP_STYLES
 from .piano_layout import create_piano_by_size
 from .pad_grid import PadGridWidget, create_pad_grid_layout
+from .faders import FadersWidget
+from .xy_fader import XYFaderWidget
+from .harmonic_table import HarmonicTableWidget
 
 
 class MainWindow(QMainWindow):
@@ -34,17 +38,19 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(icon_path)))
         except Exception:
             pass
+        # Initialize state and build default Piano keyboard
         self.current_size = size
-        self.current_scale = 1.0  # 1.0 = 100%
-        self.current_channel = 1  # 1-16
-        # Create or reuse MIDI and keyboard
+        self.current_scale = 1.0
+        self.current_channel = 1
+        # Create or reuse MIDI
         if midi is None:
             try:
                 midi = MidiOut(port_name_contains=port_hint)
             except Exception as e:
                 QMessageBox.critical(self, "MIDI Error", f"Failed to open MIDI output (hint '{port_hint}'):\n{e}")
                 raise
-        self.current_layout_type = 'piano'  # 'piano' or 'pad4x4'
+        # Build initial widget
+        self.current_layout_type = 'piano'
         layout = create_piano_by_size(size)
         self.keyboard = KeyboardWidget(layout, midi, title=f"Piano {size}-Key -> {port_hint}", show_header=False, scale=self.current_scale)
         self.keyboard.port_name = port_hint
@@ -52,18 +58,109 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.keyboard)
         self._update_window_title()
         self._resize_for_layout(self.keyboard.layout_model)
-        # Ensure one more resize after layout settles
         QTimer.singleShot(0, lambda: (
             self.keyboard.adjustSize(),
-            self._resize_for_layout(self.keyboard.layout_model),
+            self._resize_for_layout(None),
             self.adjustSize()
         ))
-        # Ensure MIDI is closed cleanly on app exit
+        # Ensure MIDI closes on exit
         try:
             self.app_ref.aboutToQuit.connect(lambda: self._safe_close_midi())
         except Exception:
             pass
+        # Build menus last
         self._build_menus()
+
+    def set_harmonic_table(self):
+        """Switch to the Harmonic Table widget."""
+        try:
+            self.current_layout_type = 'harmonic'
+            new_widget = HarmonicTableWidget(self.keyboard.midi, scale=getattr(self.keyboard, 'ui_scale', 1.0))
+            try:
+                new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self.setCentralWidget(new_widget)
+            try:
+                self.keyboard.deleteLater()
+            except Exception:
+                pass
+            self.keyboard = new_widget
+            self.keyboard.set_channel(self.current_channel)
+            # Update menu checks
+            try:
+                for k, act in getattr(self, 'size_actions', {}).items():
+                    if isinstance(k, int):
+                        act.setChecked(False)
+                if 'pad4x4' in self.size_actions:
+                    self.size_actions['pad4x4'].setChecked(False)
+                if 'faders' in self.size_actions:
+                    self.size_actions['faders'].setChecked(False)
+                if 'xy' in self.size_actions:
+                    self.size_actions['xy'].setChecked(False)
+                if 'harmonic' in self.size_actions:
+                    self.size_actions['harmonic'].setChecked(True)
+            except Exception:
+                pass
+            try:
+                self._update_faders_menu_enabled(); self._update_xy_menu_enabled()
+            except Exception:
+                pass
+            self._update_window_title()
+            self._resize_for_layout(None)
+            self.keyboard.adjustSize()
+            self.adjustSize()
+            QTimer.singleShot(0, lambda: (
+                self.keyboard.adjustSize(),
+                self._resize_for_layout(None),
+                self.adjustSize()
+            ))
+        except Exception:
+            pass
+
+    def _update_xy_menu_enabled(self):
+        try:
+            act = self.menu_actions.get('xy_cc')
+            if isinstance(act, QAction):
+                act.setEnabled(isinstance(self.keyboard, XYFaderWidget))
+        except Exception:
+            pass
+
+    def open_xy_cc_dialog(self):
+        """Dropdowns for two CC numbers (X and Y)."""
+        try:
+            if not isinstance(self.keyboard, XYFaderWidget):
+                QMessageBox.information(self, "XY Fader", "Switch to Keyboard > XY Fader to edit CC assignments.")
+                return
+            # current
+            try:
+                ccx, ccy = self.keyboard.get_cc_numbers()  # type: ignore[attr-defined]
+            except Exception:
+                ccx, ccy = 1, 74
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Configure XY CCs")
+            form = QFormLayout(dlg)
+            cbx, cby = QComboBox(dlg), QComboBox(dlg)
+            for n in range(128):
+                cbx.addItem(str(n), n)
+                cby.addItem(str(n), n)
+            cbx.setCurrentIndex(max(0, min(127, int(ccx))))
+            cby.setCurrentIndex(max(0, min(127, int(ccy))))
+            form.addRow(QLabel("X CC"), cbx)
+            form.addRow(QLabel("Y CC"), cby)
+            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)
+            buttons.accepted.connect(dlg.accept)
+            buttons.rejected.connect(dlg.reject)
+            form.addRow(buttons)
+            if dlg.exec() != QDialog.Accepted:
+                return
+            try:
+                self.keyboard.set_cc_numbers(int(cbx.currentData()), int(cby.currentData()))  # type: ignore[attr-defined]
+            except Exception:
+                QMessageBox.warning(self, "XY Fader", "Unable to apply CC numbers to XY Fader.")
+                return
+        except Exception:
+            pass
 
     def _build_menus(self):
         menubar = self.menuBar()
@@ -87,10 +184,10 @@ class MainWindow(QMainWindow):
         show_mod.toggled.connect(lambda checked: (
             self.menu_actions.__setitem__('show_mod', bool(checked)),
             self._apply_show_mod_wheel(checked),
-            self._resize_for_layout(self.keyboard.layout_model),
+            self._resize_for_layout(None),
             QTimer.singleShot(0, lambda: (
                 self.keyboard.adjustSize(),
-                self._resize_for_layout(self.keyboard.layout_model),
+                self._resize_for_layout(None),
                 self.adjustSize()
             ))
         ))
@@ -101,10 +198,10 @@ class MainWindow(QMainWindow):
         show_pitch.toggled.connect(lambda checked: (
             self.menu_actions.__setitem__('show_pitch', bool(checked)),
             self._apply_show_pitch_wheel(checked),
-            self._resize_for_layout(self.keyboard.layout_model),
+            self._resize_for_layout(None),
             QTimer.singleShot(0, lambda: (
                 self.keyboard.adjustSize(),
-                self._resize_for_layout(self.keyboard.layout_model),
+                self._resize_for_layout(None),
                 self.adjustSize()
             ))
         ))
@@ -154,21 +251,70 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             # Ensure window reflects current selection after menus are built
-            self._resize_for_layout(self.keyboard.layout_model)
+            self._resize_for_layout(None)
             QTimer.singleShot(0, lambda: (
                 self.keyboard.adjustSize(),
-                self._resize_for_layout(self.keyboard.layout_model),
+                self._resize_for_layout(None),
                 self.adjustSize()
             ))
         except Exception:
             pass
 
+        # Build the rest of the menus (Zoom, Keyboard, MIDI, Voices, Channel, Help)
+        self._build_remaining_menus(menubar, view_menu)
+
+    def set_xy_fader(self):
+        """Switch to the XY Fader widget."""
+        try:
+            self.current_layout_type = 'xy'
+            new_widget = XYFaderWidget(self.keyboard.midi, scale=getattr(self.keyboard, 'ui_scale', 1.0))
+            try:
+                new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self.setCentralWidget(new_widget)
+            try:
+                self.keyboard.deleteLater()
+            except Exception:
+                pass
+            self.keyboard = new_widget
+            self.keyboard.set_channel(self.current_channel)
+            # Update menu checks
+            try:
+                for k, act in getattr(self, 'size_actions', {}).items():
+                    if isinstance(k, int):
+                        act.setChecked(False)
+                if 'pad4x4' in self.size_actions:
+                    self.size_actions['pad4x4'].setChecked(False)
+                if 'faders' in self.size_actions:
+                    self.size_actions['faders'].setChecked(False)
+                if 'xy' in self.size_actions:
+                    self.size_actions['xy'].setChecked(True)
+            except Exception:
+                pass
+            try:
+                self._update_faders_menu_enabled(); self._update_xy_menu_enabled()
+            except Exception:
+                pass
+            self._update_window_title()
+            # use widget sizeHint for window sizing
+            self._resize_for_layout(None)
+            self.keyboard.adjustSize()
+            self.adjustSize()
+            QTimer.singleShot(0, lambda: (
+                self.keyboard.adjustSize(),
+                self._resize_for_layout(None),
+                self.adjustSize()
+            ))
+        except Exception:
+            pass
+
+    def _build_remaining_menus(self, menubar, view_menu):
         # Zoom submenu with preset levels
         try:
             zoom_menu = view_menu.addMenu("Zoom")
             self.zoom_group = QActionGroup(self)
             self.zoom_group.setExclusive(True)
-            # label -> scale mapping
             presets: list[tuple[str, float]] = [
                 ("50%", 0.50), ("75%", 0.75), ("90%", 0.90), ("100% (default)", 1.00),
                 ("110%", 1.10), ("125%", 1.25), ("150%", 1.50), ("200%", 2.00),
@@ -178,10 +324,8 @@ class MainWindow(QMainWindow):
             for label, scale in presets:
                 act = QAction(label, self)
                 act.setCheckable(True)
-                # consider equal within small epsilon
                 if abs(scale - prev_zoom) < 1e-6:
                     act.setChecked(True)
-                    # ensure current_scale follows menu persisted value
                     self.current_scale = scale
                 act.triggered.connect(lambda checked, sc=scale: self.set_zoom(sc))
                 self.zoom_group.addAction(act)
@@ -190,12 +334,9 @@ class MainWindow(QMainWindow):
             self.menu_actions['zoom_actions'] = self.zoom_actions
             self.menu_actions['zoom_group'] = self.zoom_group
             self.menu_actions['zoom_scale'] = self.current_scale
-            # Keyboard shortcuts for zooming
             try:
-                # Zoom in shortcuts: Ctrl++ and Ctrl+=
                 QShortcut(QKeySequence("Ctrl++"), self, activated=self._zoom_in_step)
                 QShortcut(QKeySequence("Ctrl+="), self, activated=self._zoom_in_step)
-                # Zoom out shortcut: Ctrl+-
                 QShortcut(QKeySequence("Ctrl+-"), self, activated=self._zoom_out_step)
             except Exception:
                 pass
@@ -216,7 +357,6 @@ class MainWindow(QMainWindow):
             self.size_group.addAction(act)
             kb_menu.addAction(act)
             self.size_actions[size] = act
-        # Separator and Pad Grid option
         kb_menu.addSeparator()
         pad_act = QAction("4x4 Beat Grid", self)
         pad_act.setCheckable(True)
@@ -225,22 +365,53 @@ class MainWindow(QMainWindow):
         self.size_group.addAction(pad_act)
         kb_menu.addAction(pad_act)
         self.size_actions['pad4x4'] = pad_act
+        faders_act = QAction("Faders", self)
+        faders_act.setCheckable(True)
+        faders_act.setChecked(False)
+        faders_act.triggered.connect(lambda checked: self.set_faders())
+        self.size_group.addAction(faders_act)
+        kb_menu.addAction(faders_act)
+        self.size_actions['faders'] = faders_act
+        xy_act = QAction("XY Fader", self)
+        xy_act.setCheckable(True)
+        xy_act.setChecked(False)
+        xy_act.triggered.connect(lambda checked: self.set_xy_fader())
+        self.size_group.addAction(xy_act)
+        kb_menu.addAction(xy_act)
+        self.size_actions['xy'] = xy_act
+        # Harmonic Table option
+        harm_act = QAction("Harmonic Table", self)
+        harm_act.setCheckable(True)
+        harm_act.setChecked(False)
+        harm_act.triggered.connect(lambda checked: self.set_harmonic_table())
+        self.size_group.addAction(harm_act)
+        kb_menu.addAction(harm_act)
+        self.size_actions['harmonic'] = harm_act
 
         # MIDI menu
         midi_menu = menubar.addMenu("&MIDI")
         select_port = QAction("Select Output Port", self)
         select_port.triggered.connect(self.select_midi_port)
         midi_menu.addAction(select_port)
+        faders_cc_act = QAction("Configure Faders CCs…", self)
+        faders_cc_act.setToolTip("Edit the 8 CC numbers used by the Faders surface (comma-separated)")
+        faders_cc_act.triggered.connect(self.open_faders_cc_dialog)
+        midi_menu.addAction(faders_cc_act)
+        self.menu_actions['faders_cc'] = faders_cc_act
+        self._update_faders_menu_enabled()
+        xy_cc_act = QAction("Configure XY CCs…", self)
+        xy_cc_act.setToolTip("Edit the CC numbers used by the XY Fader (X and Y)")
+        xy_cc_act.triggered.connect(self.open_xy_cc_dialog)
+        midi_menu.addAction(xy_cc_act)
+        self.menu_actions['xy_cc'] = xy_cc_act
+        self._update_xy_menu_enabled()
 
-        # Voices (polyphony) menu: Unlimited or 1-8 (exclusive)
+        # Voices (polyphony)
         voices_menu = menubar.addMenu("&Voices")
         self.voices_group = QActionGroup(self)
         self.voices_group.setExclusive(True)
         self.voices_actions = []
-        # Previous selection, default Unlimited
-        self.menu_actions = getattr(self, 'menu_actions', {})
         prev_sel = self.menu_actions.get('voices_selected', 'Unlimited')
-        # Unlimited action
         unlimited_act = QAction("Unlimited", self)
         unlimited_act.setCheckable(True)
         unlimited_act.setChecked(prev_sel == 'Unlimited')
@@ -249,12 +420,10 @@ class MainWindow(QMainWindow):
                 self.keyboard.set_polyphony_enabled(False)
             except Exception:
                 pass
-            # persist
             self.menu_actions['voices_selected'] = 'Unlimited'
         unlimited_act.triggered.connect(lambda checked: _select_unlimited())
         self.voices_group.addAction(unlimited_act)
         voices_menu.addAction(unlimited_act)
-        # Numeric actions 1-8
         def _select_limited(n: int):
             try:
                 self.keyboard.set_polyphony_enabled(True)
@@ -262,7 +431,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             self.menu_actions['voices_selected'] = str(n)
-        for n in range(1, 9):
+        for n in range(1,9):
             act = QAction(f"{n}", self)
             act.setCheckable(True)
             act.setChecked(prev_sel == str(n))
@@ -270,7 +439,6 @@ class MainWindow(QMainWindow):
             self.voices_group.addAction(act)
             voices_menu.addAction(act)
             self.voices_actions.append(act)
-        # If nothing matched previous selection, ensure Unlimited is applied now
         try:
             labels = [a.text() for a in self.voices_group.actions() if a.isChecked()]
             if not labels:
@@ -287,16 +455,15 @@ class MainWindow(QMainWindow):
                         _select_unlimited()
         except Exception:
             pass
-        # Persist menu refs
         self.menu_actions['voices_actions'] = self.voices_actions
         self.menu_actions['voices_group'] = self.voices_group
 
-        # Channel submenu 1-16
+        # Channel submenu
         chan_menu = midi_menu.addMenu("Channel")
         self.channel_group = QActionGroup(self)
         self.channel_group.setExclusive(True)
         self.channel_actions = []
-        for ch in range(1, 17):
+        for ch in range(1,17):
             act = QAction(f"{ch}", self)
             act.setCheckable(True)
             if ch == self.current_channel:
@@ -368,6 +535,8 @@ class MainWindow(QMainWindow):
         try:
             if hasattr(self, 'size_actions') and 'pad4x4' in self.size_actions:
                 self.size_actions['pad4x4'].setChecked(False)
+            if hasattr(self, 'size_actions') and 'faders' in self.size_actions:
+                self.size_actions['faders'].setChecked(False)
         except Exception:
             pass
         # Resize window for the new layout (immediate + deferred)
@@ -427,8 +596,13 @@ class MainWindow(QMainWindow):
             pass
         # If current layout is pad grid, switch the new window as well
         try:
-            if getattr(self, 'current_layout_type', 'piano') == 'pad4x4':
+            cur = getattr(self, 'current_layout_type', 'piano')
+            if cur == 'pad4x4':
                 win.set_pad_grid()
+            elif cur == 'faders':
+                win.set_faders()
+            elif cur == 'xy':
+                win.set_xy_fader()
         except Exception:
             pass
         # Keep reference on QApplication to prevent GC
@@ -490,6 +664,58 @@ class MainWindow(QMainWindow):
                 new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
             except Exception:
                 pass
+        elif getattr(self, 'current_layout_type', 'piano') == 'faders':
+            layout = None  # not used by FadersWidget
+            # Capture current fader state before rebuild
+            try:
+                prev_vals = self.keyboard.get_values()  # type: ignore[attr-defined]
+            except Exception:
+                prev_vals = None
+            try:
+                prev_ccs = self.keyboard.get_cc_numbers()  # type: ignore[attr-defined]
+            except Exception:
+                prev_ccs = None
+            new_widget = FadersWidget(self.keyboard.midi, scale=scale)
+            try:
+                new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            # Restore CCs and values without emitting extra CC messages
+            try:
+                if prev_ccs is not None:
+                    new_widget.set_cc_numbers(prev_ccs)
+            except Exception:
+                pass
+            try:
+                if prev_vals is not None:
+                    new_widget.set_values(prev_vals, emit=False)
+            except Exception:
+                pass
+        elif getattr(self, 'current_layout_type', 'piano') == 'xy':
+            layout = None  # not used by XYFaderWidget
+            # Capture current xy state
+            try:
+                prev_xy = self.keyboard.get_values()  # type: ignore[attr-defined]
+            except Exception:
+                prev_xy = None
+            try:
+                ccx, ccy = self.keyboard.get_cc_numbers()  # type: ignore[attr-defined]
+            except Exception:
+                ccx, ccy = (1, 74)
+            new_widget = XYFaderWidget(self.keyboard.midi, scale=scale)
+            try:
+                new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            try:
+                new_widget.set_cc_numbers(ccx, ccy)
+            except Exception:
+                pass
+            try:
+                if prev_xy is not None:
+                    new_widget.set_values(prev_xy[0], prev_xy[1], emit=False)
+            except Exception:
+                pass
         else:
             layout = create_piano_by_size(self.current_size)
             new_widget = KeyboardWidget(layout, self.keyboard.midi, show_header=False, scale=scale)
@@ -507,6 +733,12 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.keyboard = new_widget  # keep attribute name consistent
+        # Update menus enabled state after rebuild
+        try:
+            self._update_faders_menu_enabled()
+            self._update_xy_menu_enabled()
+        except Exception:
+            pass
         # Restore channel
         try:
             self.keyboard.set_channel(self.current_channel)
@@ -631,9 +863,9 @@ class MainWindow(QMainWindow):
             pass
 
         # For piano widgets, we constrain width to content_width to prevent stretching.
-        # For pad grid, we let its fixed sizeHint govern; do not force setFixedWidth.
-        is_pad = isinstance(self.keyboard, PadGridWidget)
-        if not is_pad:
+        # For pad grid/other fixed widgets, let their sizeHint govern.
+        is_fixed = isinstance(self.keyboard, (PadGridWidget, FadersWidget, XYFaderWidget, HarmonicTableWidget))
+        if not is_fixed:
             try:
                 self.keyboard.setMinimumWidth(int(content_width))
                 self.keyboard.setMaximumWidth(int(content_width))
@@ -759,8 +991,21 @@ class MainWindow(QMainWindow):
 
     def _update_window_title(self):
         try:
-            kb_name = getattr(self.keyboard.layout_model, 'name', '') or 'Keyboard'
-            self.setWindowTitle(f"Octavium [Ch {self.current_channel}] - {kb_name}")
+            title_part = None
+            # If the widget exposes a layout_model, use its name
+            try:
+                title_part = getattr(self.keyboard.layout_model, 'name', None)  # type: ignore[attr-defined]
+            except Exception:
+                title_part = None
+            # If this is the Faders widget, label accordingly
+            try:
+                if isinstance(self.keyboard, FadersWidget):
+                    title_part = 'Faders'
+            except Exception:
+                pass
+            if not title_part:
+                title_part = 'Keyboard'
+            self.setWindowTitle(f"Octavium [Ch {self.current_channel}] - {title_part}")
         except Exception:
             self.setWindowTitle(f"Octavium [Ch {self.current_channel}]")
 
@@ -825,6 +1070,18 @@ class MainWindow(QMainWindow):
                         act.setChecked(False)
                 if 'pad4x4' in self.size_actions:
                     self.size_actions['pad4x4'].setChecked(True)
+                if 'faders' in self.size_actions:
+                    self.size_actions['faders'].setChecked(False)
+                if 'xy' in self.size_actions:
+                    self.size_actions['xy'].setChecked(False)
+            except Exception:
+                pass
+            try:
+                self._update_faders_menu_enabled(); self._update_xy_menu_enabled()
+            except Exception:
+                pass
+            try:
+                self._update_faders_menu_enabled()
             except Exception:
                 pass
             self._update_window_title()
@@ -839,7 +1096,106 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def set_faders(self):
+        """Switch to the Faders surface widget."""
+        try:
+            self.current_layout_type = 'faders'
+            new_widget = FadersWidget(self.keyboard.midi, scale=getattr(self.keyboard, 'ui_scale', 1.0))
+            try:
+                new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self.setCentralWidget(new_widget)
+            try:
+                self.keyboard.deleteLater()
+            except Exception:
+                pass
+            self.keyboard = new_widget
+            self.keyboard.set_channel(self.current_channel)
+            # Update menu checks
+            try:
+                for k, act in getattr(self, 'size_actions', {}).items():
+                    if isinstance(k, int):
+                        act.setChecked(False)
+                if 'pad4x4' in self.size_actions:
+                    self.size_actions['pad4x4'].setChecked(False)
+                if 'faders' in self.size_actions:
+                    self.size_actions['faders'].setChecked(True)
+                if 'xy' in self.size_actions:
+                    self.size_actions['xy'].setChecked(False)
+            except Exception:
+                pass
+            try:
+                self._update_faders_menu_enabled(); self._update_xy_menu_enabled()
+            except Exception:
+                pass
+            self._update_window_title()
+            # use widget sizeHint for window sizing
+            self._resize_for_layout(None)
+            self.keyboard.adjustSize()
+            self.adjustSize()
+            QTimer.singleShot(0, lambda: (
+                self.keyboard.adjustSize(),
+                self._resize_for_layout(None),
+                self.adjustSize()
+            ))
+        except Exception:
+            pass
+
+    def _update_faders_menu_enabled(self):
+        try:
+            act = self.menu_actions.get('faders_cc')
+            if isinstance(act, QAction):
+                act.setEnabled(isinstance(self.keyboard, FadersWidget))
+        except Exception:
+            pass
+
+    def open_faders_cc_dialog(self):
+        """Prompt for 8 comma-separated CC numbers and apply to the FadersWidget."""
+        try:
+            if not isinstance(self.keyboard, FadersWidget):
+                QMessageBox.information(self, "Faders", "Switch to Keyboard > Faders to edit CC assignments.")
+                return
+            # Current values
+            try:
+                current = self.keyboard.get_cc_numbers()  # type: ignore[attr-defined]
+            except Exception:
+                current = [1, 7, 74, 10, 71, 73, 11, 91]
+
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Configure Faders CCs")
+            form = QFormLayout(dlg)
+            combos: list[QComboBox] = []
+            for i in range(8):
+                cb = QComboBox(dlg)
+                for n in range(128):
+                    cb.addItem(str(n), n)
+                try:
+                    sel = int(current[i]) if i < len(current) else 0
+                except Exception:
+                    sel = 0
+                cb.setCurrentIndex(max(0, min(127, sel)))
+                combos.append(cb)
+                form.addRow(QLabel(f"Fader {i+1}"), cb)
+            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)
+            buttons.accepted.connect(dlg.accept)
+            buttons.rejected.connect(dlg.reject)
+            form.addRow(buttons)
+            if dlg.exec() != QDialog.Accepted:
+                return
+            cleaned = [int(cb.currentData()) for cb in combos]
+            try:
+                self.keyboard.set_cc_numbers(cleaned)  # type: ignore[attr-defined]
+            except Exception:
+                QMessageBox.warning(self, "Faders", "Unable to apply CC numbers to the current Faders view.")
+                return
+        except Exception:
+            pass
+
+# --- Simple data-entry dialog classes (module-local) could be added here if needed ---
+
 def run():
+    from .faders import FadersWidget
     app = QApplication(sys.argv)
     app.setStyleSheet(APP_STYLES)
     # Set application icon as well (project-relative)

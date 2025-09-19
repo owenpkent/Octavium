@@ -58,7 +58,7 @@ An accessibility-first, mouse‑driven virtual MIDI keyboard for making music wi
 
 5. **Run Octavium:**
    ```bash
-   python -m app.main
+   python run.py
    ```
 
 ## Usage
@@ -90,6 +90,17 @@ An accessibility-first, mouse‑driven virtual MIDI keyboard for making music wi
 - **Sustain & Latch**: Toggle buttons with clear on/off states.
 - **All Notes Off**: Stops all sounding notes.
 
+### Layouts and surfaces
+
+- **Piano (default)**: Choose sizes in `Keyboard` menu (25/49/61/73/76/88).
+- **4x4 Beat Grid**: `Keyboard` → `4x4 Beat Grid`. Sends 16 notes (row-major).
+- **Faders**: `Keyboard` → `Faders`. Eight CC faders; configure CCs via `MIDI` → `Configure Faders CCs…`.
+- **XY Fader**: `Keyboard` → `XY Fader`. Drag to send two CCs (X and Y). Configure via `MIDI` → `Configure XY CCs…`. Clicking sets a reference point and dragging moves relatively.
+- **Harmonic Table (WIP)**: `Keyboard` → `Harmonic Table`.
+  - Blue hex honeycomb with isomorphic mapping (horizontal = fifths, diagonals thirds).
+  - Default base is C2 at the lower-left. Orientation and mapping are still being tuned.
+  - Zoom works from `View` → `Zoom`.
+
 ## MIDI Setup
 
 ### Windows (Recommended: loopMIDI)
@@ -107,6 +118,8 @@ On first run, Octavium attempts to use `mido` with `python-rtmidi`. If unavailab
 - **`app/main.py`**
   - `MainWindow`: Builds the window, menus, and swaps keyboard sizes while preserving state (channel, sustain/latch preferences, etc.).
   - `set_keyboard_size(size)`: Rebuilds the keyboard widget for 25/49/61 keys while keeping the same MIDI out and settings.
+  - `set_pad_grid()` / `set_faders()` / `set_xy_fader()` / `set_harmonic_table()`: Switch to alternate surfaces.
+  - `set_zoom(scale)`: Rebuilds current surface at the chosen UI scale, preserving state where possible.
 
 - **`app/keyboard_widget.py`**
   - `KeyboardWidget`: Core widget that renders the piano, handles mouse input, and sends MIDI.
@@ -119,6 +132,10 @@ On first run, Octavium attempts to use `mido` with `python-rtmidi`. If unavailab
 
 - **`app/midi_io.py`**
   - `MidiOut`: Simple abstraction for MIDI output. Tries mido/rtmidi, falls back to pygame if needed. Methods: `note_on`, `note_off`, `cc`, `panic`.
+
+- **`app/harmonic_table.py` (WIP)**
+  - `HarmonicTableWidget`: Flat‑top hex honeycomb surface, absolute‑positioned with axial coordinates. Defaults to C2 at the lower-left. Orientation and range are subject to change.
+  - `HexButton`: Custom-painted hexagonal buttons in the blue theme.
 
 
 
