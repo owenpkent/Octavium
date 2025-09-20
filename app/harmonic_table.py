@@ -81,17 +81,17 @@ class HarmonicTableWidget(QWidget):
     """Isomorphic Harmonic Table layout with a hex-style staggered grid of buttons.
 
     Mapping (typical Harmonic Table):
-    - Horizontal step: +7 semitones (perfect fifth)
-    - Down-right step: +4 semitones (major third)
-    - Up-right step: -4 semitones (minor third up = inverse)
+    - Horizontal step (E direction): +7 semitones (perfect fifth)
+    - One axial step in the other basis (combines up-left/up-right): +3 semitones (minor third)
 
-    We render a staggered rectangular grid with odd rows offset to emulate hexes.
-    Blue color scheme, scalable via ui_scale.
+    We render a rectangular footprint using a flat-top hex grid with odd-q offset
+    (columns are vertically offset by half a hex). This produces a tidy rectangle
+    while preserving isomorphic harmonic adjacency.
     """
     def __init__(self, midi_out: MidiOut, scale: float = 1.0,
                  rows: int = 6, cols: int = 12,
                  base_note: int = 36,  # C2 lower starting octave
-                 step_x: int = 7, step_y: int = 4):
+                 step_x: int = 7, step_y: int = 3):
         super().__init__()
         self.midi: MidiOut = midi_out
         self.port_name: str = ""
@@ -125,18 +125,19 @@ class HarmonicTableWidget(QWidget):
         grid.setObjectName("harmonic_grid")
         root.addWidget(grid, 0)
 
-        # Geometry using axial coordinates (slanted honeycomb orientation)
+        # Geometry: flat-top hexes with odd-q vertical offset (rectangular footprint)
         size_px = int(60 * self.ui_scale)  # hex width = 2 * radius
         s = size_px / 2.0                   # radius
         import math
-        H = int(round(math.sqrt(3.0) * s))  # hex height
+        H = int(round(math.sqrt(3.0) * s))  # hex height (center-to-center vertically per row)
         margin = int(12 * self.ui_scale)
 
-        # Precompute grid size for sizeHint and widget size (axial)
+        # Precompute grid size for sizeHint and widget size (odd-q offset rectangle)
         max_q = self.cols - 1
         max_r = self.rows - 1
         cx_max = s * 1.5 * max_q
-        cy_max = math.sqrt(3.0) * s * (max_r + max_q / 2.0)
+        # With odd-q offset, tallest column gets an extra H/2
+        cy_max = H * max_r + (H / 2 if self.cols > 1 else 0)
         grid_w = int(math.ceil(cx_max + size_px / 2.0)) + margin * 2
         grid_h = int(math.ceil(cy_max + H / 2.0)) + margin * 2
         grid.setFixedSize(grid_w, grid_h)
@@ -149,9 +150,9 @@ class HarmonicTableWidget(QWidget):
                 row_notes.append(note)
                 label = self._note_name(note) if (note is not None and 0 <= note <= 127) else ""
                 b = HexButton(label, size_px, grid)
-                # centers (axial)
+                # centers (flat-top, odd-q offset rectangle)
                 cx = s * 1.5 * q
-                cy = math.sqrt(3.0) * s * (r + q / 2.0)
+                cy = H * r + (H / 2 if (q % 2) == 1 else 0)
                 # top-left position
                 x = int(round(cx - size_px / 2.0)) + margin
                 y = int(round(cy - H / 2.0)) + margin
@@ -176,7 +177,7 @@ class HarmonicTableWidget(QWidget):
             max_q = self.cols - 1
             max_r = self.rows - 1
             cx_max = s * 1.5 * max_q
-            cy_max = math.sqrt(3.0) * s * (max_r + max_q / 2.0)
+            cy_max = H * max_r + (H / 2 if self.cols > 1 else 0)
             margin = int(12 * self.ui_scale)
             w = int(math.ceil(cx_max + size_px / 2.0)) + margin * 2
             h = int(math.ceil(cy_max + H / 2.0)) + margin * 2
@@ -186,23 +187,26 @@ class HarmonicTableWidget(QWidget):
 
     # Mapping helpers
     def _recompute_grid(self):
-        # Axial-based interval mapping with base at bottom-left:
-        # E (right) = +7, NE (up-right) = +4, NW (up-left) = +3
-        # Using axial relation: semitone offset = 7*dq + 3*dr where
-        # dq = c - 0, dr = r - (rows-1)
+        # Map notes using axial coordinates derived from flat-top odd-q offset
+        # Base is placed at bottom-left cell (row = rows-1, col = 0)
         rows, cols = self.rows, self.cols
         notes: list[list[int | None]] = [[None for _ in range(cols)] for __ in range(rows)]
         if rows == 0 or cols == 0:
             self.notes = notes
             return
         base = int(self.base_note)
+        step_q = int(self.step_x)  # per +q (east)
+        step_r = int(self.step_y)  # per +r (south-east in axial for flat-top)
         last_row = rows - 1
         for r in range(rows):
-            for c in range(cols):
-                dq = c
-                dr = r - last_row
-                n = base + 7 * dq + 3 * dr
-                notes[r][c] = n
+            for q in range(cols):
+                # Convert from offset (row=r, col=q) to axial r': r_ax = r - floor(q/2)
+                r_ax = r - (q // 2)
+                # Reference bottom-left axial r for base (col=0): r_base_ax = last_row
+                dq = q  # since base col is 0
+                dr = r_ax - last_row
+                n = base + step_q * dq + step_r * dr
+                notes[r][q] = n
         self.notes = notes
 
     @staticmethod
