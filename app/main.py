@@ -1,4 +1,5 @@
 import sys
+import traceback
 from datetime import datetime
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QMenu, QInputDialog, QMessageBox,
@@ -36,8 +37,12 @@ class MainWindow(QMainWindow):
         try:
             icon_path = Path(__file__).resolve().parent.parent / "Octavium icon.png"
             self.setWindowIcon(QIcon(str(icon_path)))
-        except Exception:
-            pass
+        except Exception as e:
+            try:
+                QMessageBox.critical(self, "Harmonic Table Error", f"Failed to switch to Harmonic Table:\n{e}\n\n{traceback.format_exc()}")
+            except Exception:
+                print("Failed to switch to Harmonic Table:", e)
+                print(traceback.format_exc())
         # Initialize state and build default Piano keyboard
         self.current_size = size
         self.current_scale = 1.0
