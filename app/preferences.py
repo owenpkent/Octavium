@@ -48,7 +48,6 @@ class PreferencesDialog(QDialog):
         
         self.keyboard_size_combo = QComboBox()
         self.keyboard_size_combo.addItems([
-            "25 Keys (2 Octaves)",
             "49 Keys (4 Octaves)", 
             "61 Keys (5 Octaves)",
             "73 Keys (6 Octaves)",
@@ -57,7 +56,7 @@ class PreferencesDialog(QDialog):
         ])
         
         # Set current selection
-        size_map = {25: 0, 49: 1, 61: 2, 73: 3, 76: 4, 88: 5}
+        size_map = {49: 0, 61: 1, 73: 2, 76: 3, 88: 4}
         if self.current_keyboard_size in size_map:
             self.keyboard_size_combo.setCurrentIndex(size_map[self.current_keyboard_size])
         
@@ -115,7 +114,7 @@ class PreferencesDialog(QDialog):
     
     def get_selected_keyboard_size(self):
         """Get the selected keyboard size"""
-        size_map = {0: 25, 1: 49, 2: 61, 3: 73, 4: 76, 5: 88}
+        size_map = {0: 49, 1: 61, 2: 73, 3: 76, 4: 88}
         return size_map.get(self.keyboard_size_combo.currentIndex(), 61)
     
     def get_selected_midi_port(self):

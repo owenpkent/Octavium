@@ -181,8 +181,7 @@ def _create_black_key_row(
 def create_piano_by_size(size: int) -> Layout:
     """Create a piano layout based on total key count."""
     configs = {
-        25: {"white_keys": 15, "start_note": 0, "base_octave": 4},   # 25-key (2 octaves)
-        49: {"white_keys": 29, "start_note": 0, "base_octave": 3},   # 49-key (4 octaves)
+        49: {"white_keys": 29, "start_note": 0, "base_octave": 4},   # 49-key (4 octaves)
         61: {"white_keys": 36, "start_note": 0, "base_octave": 3},   # 61-key (5 octaves)
         73: {"white_keys": 43, "start_note": 0, "base_octave": 1},   # 73-key (6 octaves)
         76: {"white_keys": 45, "start_note": 0, "base_octave": 1},   # 76-key (6+ octaves)
@@ -199,14 +198,11 @@ def create_piano_by_size(size: int) -> Layout:
         start_note=config["start_note"],
         base_octave=config["base_octave"]
     )
-    # Ensure the name reflects the intended total size (25/49/61/etc.)
+    # Ensure the name reflects the intended total size (49/61/73/etc.)
     layout.name = f"Piano {size}-Key"
     return layout
 
 
-def create_25_key_piano() -> Layout:
-    """Create a 25-key piano layout (2 octaves)."""
-    return create_piano_by_size(25)
 
 
 def create_49_key_piano() -> Layout:

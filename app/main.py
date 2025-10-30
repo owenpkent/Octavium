@@ -26,7 +26,6 @@ from .piano_layout import create_piano_by_size
 from .pad_grid import PadGridWidget, create_pad_grid_layout
 from .faders import FadersWidget
 from .xy_fader import XYFaderWidget
-from .harmonic_table import HarmonicTableWidget
 
 
 class MainWindow(QMainWindow):
@@ -38,11 +37,7 @@ class MainWindow(QMainWindow):
             icon_path = Path(__file__).resolve().parent.parent / "Octavium icon.png"
             self.setWindowIcon(QIcon(str(icon_path)))
         except Exception as e:
-            try:
-                QMessageBox.critical(self, "Harmonic Table Error", f"Failed to switch to Harmonic Table:\n{e}\n\n{traceback.format_exc()}")
-            except Exception:
-                print("Failed to switch to Harmonic Table:", e)
-                print(traceback.format_exc())
+            print(f"Failed to set window icon: {e}")
         # Initialize state and build default Piano keyboard
         self.current_size = size
         self.current_scale = 1.0
@@ -76,52 +71,6 @@ class MainWindow(QMainWindow):
         # Build menus last
         self._build_menus()
 
-    def set_harmonic_table(self):
-        """Switch to the Harmonic Table widget."""
-        try:
-            self.current_layout_type = 'harmonic'
-            new_widget = HarmonicTableWidget(self.keyboard.midi, scale=getattr(self.keyboard, 'ui_scale', 1.0))
-            try:
-                new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            self.setCentralWidget(new_widget)
-            try:
-                self.keyboard.deleteLater()
-            except Exception:
-                pass
-            self.keyboard = new_widget
-            self.keyboard.set_channel(self.current_channel)
-            # Update menu checks
-            try:
-                for k, act in getattr(self, 'size_actions', {}).items():
-                    if isinstance(k, int):
-                        act.setChecked(False)
-                if 'pad4x4' in self.size_actions:
-                    self.size_actions['pad4x4'].setChecked(False)
-                if 'faders' in self.size_actions:
-                    self.size_actions['faders'].setChecked(False)
-                if 'xy' in self.size_actions:
-                    self.size_actions['xy'].setChecked(False)
-                if 'harmonic' in self.size_actions:
-                    self.size_actions['harmonic'].setChecked(True)
-            except Exception:
-                pass
-            try:
-                self._update_faders_menu_enabled(); self._update_xy_menu_enabled()
-            except Exception:
-                pass
-            self._update_window_title()
-            self._resize_for_layout(None)
-            self.keyboard.adjustSize()
-            self.adjustSize()
-            QTimer.singleShot(0, lambda: (
-                self.keyboard.adjustSize(),
-                self._resize_for_layout(None),
-                self.adjustSize()
-            ))
-        except Exception:
-            pass
 
     def _update_xy_menu_enabled(self):
         try:
@@ -353,7 +302,7 @@ class MainWindow(QMainWindow):
         self.size_group = QActionGroup(self)
         self.size_group.setExclusive(True)
         self.size_actions = {}
-        for size in [25, 49, 61, 73, 76, 88]:
+        for size in [49, 61, 73, 76, 88]:
             act = QAction(f"{size} Keys", self)
             act.setCheckable(True)
             if size == self.current_size:
@@ -384,14 +333,6 @@ class MainWindow(QMainWindow):
         self.size_group.addAction(xy_act)
         kb_menu.addAction(xy_act)
         self.size_actions['xy'] = xy_act
-        # Harmonic Table option
-        harm_act = QAction("Harmonic Table", self)
-        harm_act.setCheckable(True)
-        harm_act.setChecked(False)
-        harm_act.triggered.connect(lambda checked: self.set_harmonic_table())
-        self.size_group.addAction(harm_act)
-        kb_menu.addAction(harm_act)
-        self.size_actions['harmonic'] = harm_act
 
         # MIDI menu
         midi_menu = menubar.addMenu("&MIDI")
@@ -869,7 +810,7 @@ class MainWindow(QMainWindow):
 
         # For piano widgets, we constrain width to content_width to prevent stretching.
         # For pad grid/other fixed widgets, let their sizeHint govern.
-        is_fixed = isinstance(self.keyboard, (PadGridWidget, FadersWidget, XYFaderWidget, HarmonicTableWidget))
+        is_fixed = isinstance(self.keyboard, (PadGridWidget, FadersWidget, XYFaderWidget))
         if not is_fixed:
             try:
                 self.keyboard.setMinimumWidth(int(content_width))
