@@ -3,7 +3,7 @@ import traceback
 from datetime import datetime
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QMenu, QInputDialog, QMessageBox,
-    QDialog, QDialogButtonBox, QFormLayout, QComboBox, QLabel
+    QDialog, QDialogButtonBox, QFormLayout, QComboBox, QLabel, QWidget
 )
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QPixmap, QShortcut, QKeySequence
 from pathlib import Path
@@ -27,6 +27,8 @@ from .pad_grid import PadGridWidget, create_pad_grid_layout
 from .faders import FadersWidget
 from .xy_fader import XYFaderWidget
 from .harmonic_table import HarmonicTableWidget
+from .chord_selector import ChordSelectorWidget
+from .chord_monitor_window import ChordMonitorWindow
 
 
 class MainWindow(QMainWindow):
@@ -47,6 +49,7 @@ class MainWindow(QMainWindow):
         self.current_size = size
         self.current_scale = 1.0
         self.current_channel = 1
+        self.chord_monitor_window: ChordMonitorWindow | None = None
         # Create or reuse MIDI
         if midi is None:
             try:
@@ -105,6 +108,56 @@ class MainWindow(QMainWindow):
                     self.size_actions['xy'].setChecked(False)
                 if 'harmonic' in self.size_actions:
                     self.size_actions['harmonic'].setChecked(True)
+                if 'chord_selector' in self.size_actions:
+                    self.size_actions['chord_selector'].setChecked(False)
+            except Exception:
+                pass
+            try:
+                self._update_faders_menu_enabled(); self._update_xy_menu_enabled()
+            except Exception:
+                pass
+            self._update_window_title()
+            self._resize_for_layout(None)
+            self.keyboard.adjustSize()
+            self.adjustSize()
+            QTimer.singleShot(0, lambda: (
+                self.keyboard.adjustSize(),
+                self._resize_for_layout(None),
+                self.adjustSize()
+            ))
+        except Exception:
+            pass
+
+    def set_chord_selector(self):
+        """Switch to the Chord Selector widget."""
+        try:
+            self.current_layout_type = 'chord_selector'
+            new_widget = ChordSelectorWidget(self.keyboard.midi, self.current_channel - 1)
+            try:
+                new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self.setCentralWidget(new_widget)
+            try:
+                self.keyboard.deleteLater()
+            except Exception:
+                pass
+            self.keyboard = new_widget
+            # Update menu checks
+            try:
+                for k, act in getattr(self, 'size_actions', {}).items():
+                    if isinstance(k, int):
+                        act.setChecked(False)
+                if 'pad4x4' in self.size_actions:
+                    self.size_actions['pad4x4'].setChecked(False)
+                if 'faders' in self.size_actions:
+                    self.size_actions['faders'].setChecked(False)
+                if 'xy' in self.size_actions:
+                    self.size_actions['xy'].setChecked(False)
+                if 'harmonic' in self.size_actions:
+                    self.size_actions['harmonic'].setChecked(False)
+                if 'chord_selector' in self.size_actions:
+                    self.size_actions['chord_selector'].setChecked(True)
             except Exception:
                 pass
             try:
@@ -234,18 +287,46 @@ class MainWindow(QMainWindow):
                 pass
         visual_hold.triggered.connect(_toggle_visual_hold)
         view_menu.addAction(visual_hold)
+        # Chord Monitor option
+        chord_monitor = QAction("Chord Monitor", self)
+        chord_monitor.setCheckable(True)
+        chord_monitor.setChecked(bool(self.menu_actions.get('chord_monitor', False)))
+        def _toggle_chord_monitor(checked: bool):
+            try:
+                if hasattr(self, 'keyboard') and hasattr(self.keyboard, 'set_chord_monitor'):
+                    self.keyboard.set_chord_monitor(checked)
+                self.menu_actions['chord_monitor'] = checked
+                # Open or close chord monitor window
+                if checked:
+                    self._open_chord_monitor_window()
+                else:
+                    self._close_chord_monitor_window()
+            except Exception:
+                pass
+        chord_monitor.triggered.connect(_toggle_chord_monitor)
+        view_menu.addAction(chord_monitor)
         # Persist
         self.menu_actions['show_mod'] = show_mod.isChecked()
         self.menu_actions['show_pitch'] = show_pitch.isChecked()
         self.menu_actions['view_show_mod'] = show_mod
         self.menu_actions['view_show_pitch'] = show_pitch
         self.menu_actions['visual_hold'] = visual_hold
+        self.menu_actions['chord_monitor'] = chord_monitor
         # Apply current selections
         try:
             self._apply_show_mod_wheel(show_mod.isChecked())
             self._apply_show_pitch_wheel(show_pitch.isChecked())
             # Apply visual hold default (unchecked) or previous
             self.keyboard.visual_hold_on_sustain = visual_hold.isChecked()
+            # Apply chord monitor state
+            try:
+                if hasattr(self.keyboard, 'set_chord_monitor'):
+                    self.keyboard.set_chord_monitor(chord_monitor.isChecked())
+                # Open window if previously checked
+                if chord_monitor.isChecked():
+                    self._open_chord_monitor_window()
+            except Exception:
+                pass
             # Ensure styles reflect any change
             try:
                 st = self.keyboard.style()
@@ -295,6 +376,8 @@ class MainWindow(QMainWindow):
                     self.size_actions['faders'].setChecked(False)
                 if 'xy' in self.size_actions:
                     self.size_actions['xy'].setChecked(True)
+                if 'chord_selector' in self.size_actions:
+                    self.size_actions['chord_selector'].setChecked(False)
             except Exception:
                 pass
             try:
@@ -392,6 +475,15 @@ class MainWindow(QMainWindow):
         self.size_group.addAction(harm_act)
         kb_menu.addAction(harm_act)
         self.size_actions['harmonic'] = harm_act
+        kb_menu.addSeparator()
+        # Chord Selector option
+        chord_act = QAction("Chord Selector", self)
+        chord_act.setCheckable(True)
+        chord_act.setChecked(False)
+        chord_act.triggered.connect(lambda checked: self.set_chord_selector())
+        self.size_group.addAction(chord_act)
+        kb_menu.addAction(chord_act)
+        self.size_actions['chord_selector'] = chord_act
 
         # MIDI menu
         midi_menu = menubar.addMenu("&MIDI")
@@ -509,6 +601,11 @@ class MainWindow(QMainWindow):
                 # Visual hold
                 if 'visual_hold' in self.menu_actions:
                     self.keyboard.visual_hold_on_sustain = self.menu_actions['visual_hold'].isChecked()
+                # Chord monitor
+                if 'chord_monitor' in self.menu_actions:
+                    chord_monitor_checked = self.menu_actions['chord_monitor'].isChecked() if hasattr(self.menu_actions['chord_monitor'], 'isChecked') else bool(self.menu_actions.get('chord_monitor', False))
+                    if hasattr(self.keyboard, 'set_chord_monitor'):
+                        self.keyboard.set_chord_monitor(chord_monitor_checked)
                 # Voices (polyphony): apply current selection (Unlimited or 1-8)
                 sel = self.menu_actions.get('voices_selected', 'Unlimited')
                 try:
@@ -542,6 +639,8 @@ class MainWindow(QMainWindow):
                 self.size_actions['pad4x4'].setChecked(False)
             if hasattr(self, 'size_actions') and 'faders' in self.size_actions:
                 self.size_actions['faders'].setChecked(False)
+            if hasattr(self, 'size_actions') and 'chord_selector' in self.size_actions:
+                self.size_actions['chord_selector'].setChecked(False)
         except Exception:
             pass
         # Resize window for the new layout (immediate + deferred)
@@ -558,6 +657,38 @@ class MainWindow(QMainWindow):
         kb_menu: QMenu = self.menuBar().findChild(QMenu, None)
         # Not strictly necessary to update checks programmatically; actions will visually toggle by selection.
 
+    def _open_chord_monitor_window(self):
+        """Open the chord monitor window."""
+        try:
+            if self.chord_monitor_window is None or not hasattr(self.chord_monitor_window, 'isVisible') or not self.chord_monitor_window.isVisible():
+                self.chord_monitor_window = ChordMonitorWindow(
+                    self.keyboard.midi, 
+                    self.current_channel - 1,
+                    self
+                )
+                # Store reference to parent for menu updates
+                self.chord_monitor_window._parent_main = self  # type: ignore[attr-defined]
+                self.chord_monitor_window.set_channel(self.current_channel - 1)
+                # Keep reference to prevent GC
+                if not hasattr(self.app_ref, "_chord_monitor_windows"):
+                    self.app_ref._chord_monitor_windows = []  # type: ignore[attr-defined]
+                self.app_ref._chord_monitor_windows.append(self.chord_monitor_window)  # type: ignore[attr-defined]
+                self.chord_monitor_window.show()
+            else:
+                self.chord_monitor_window.raise_()
+                self.chord_monitor_window.activateWindow()
+        except Exception:
+            pass
+    
+    def _close_chord_monitor_window(self):
+        """Close the chord monitor window."""
+        try:
+            if self.chord_monitor_window is not None:
+                self.chord_monitor_window.close()
+                self.chord_monitor_window = None
+        except Exception:
+            pass
+    
     def select_midi_port(self):
         ports = list_output_names()
         if not ports:
@@ -630,7 +761,11 @@ class MainWindow(QMainWindow):
         # Apply to current keyboard widget
         try:
             if hasattr(self, 'keyboard') and self.keyboard is not None:
-                self.keyboard.set_channel(ch)
+                # ChordSelectorWidget expects 0-based channel
+                if isinstance(self.keyboard, ChordSelectorWidget):
+                    self.keyboard.set_channel(ch - 1)
+                else:
+                    self.keyboard.set_channel(ch)
         except Exception:
             pass
         # Update menu checkmarks if the group exists
@@ -721,6 +856,13 @@ class MainWindow(QMainWindow):
                     new_widget.set_values(prev_xy[0], prev_xy[1], emit=False)
             except Exception:
                 pass
+        elif getattr(self, 'current_layout_type', 'piano') == 'chord_selector':
+            layout = None  # not used by ChordSelectorWidget
+            new_widget = ChordSelectorWidget(self.keyboard.midi, self.current_channel - 1)
+            try:
+                new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
+            except Exception:
+                pass
         else:
             layout = create_piano_by_size(self.current_size)
             new_widget = KeyboardWidget(layout, self.keyboard.midi, show_header=False, scale=scale)
@@ -754,6 +896,17 @@ class MainWindow(QMainWindow):
             self._apply_show_mod_wheel(bool(self.menu_actions.get('show_mod', False)))
             self._apply_show_pitch_wheel(bool(self.menu_actions.get('show_pitch', False)))
             self.keyboard.visual_hold_on_sustain = bool(self.menu_actions.get('visual_hold_checked', False))
+            # Restore chord monitor state
+            try:
+                chord_monitor_action = self.menu_actions.get('chord_monitor')
+                if chord_monitor_action and hasattr(chord_monitor_action, 'isChecked'):
+                    chord_monitor_checked = chord_monitor_action.isChecked()
+                else:
+                    chord_monitor_checked = bool(self.menu_actions.get('chord_monitor', False))
+                if hasattr(self.keyboard, 'set_chord_monitor'):
+                    self.keyboard.set_chord_monitor(chord_monitor_checked)
+            except Exception:
+                pass
         except Exception:
             pass
         # Restore voices (polyphony)
@@ -1006,6 +1159,8 @@ class MainWindow(QMainWindow):
             try:
                 if isinstance(self.keyboard, FadersWidget):
                     title_part = 'Faders'
+                elif isinstance(self.keyboard, ChordSelectorWidget):
+                    title_part = 'Chord Selector'
             except Exception:
                 pass
             if not title_part:
@@ -1022,6 +1177,11 @@ class MainWindow(QMainWindow):
             pass
 
     def closeEvent(self, event):  # type: ignore[override]
+        # Close chord monitor window if open
+        try:
+            self._close_chord_monitor_window()
+        except Exception:
+            pass
         # Explicitly close MIDI port before widgets are torn down
         try:
             self._safe_close_midi()
@@ -1079,6 +1239,8 @@ class MainWindow(QMainWindow):
                     self.size_actions['faders'].setChecked(False)
                 if 'xy' in self.size_actions:
                     self.size_actions['xy'].setChecked(False)
+                if 'chord_selector' in self.size_actions:
+                    self.size_actions['chord_selector'].setChecked(False)
             except Exception:
                 pass
             try:
@@ -1128,6 +1290,8 @@ class MainWindow(QMainWindow):
                     self.size_actions['faders'].setChecked(True)
                 if 'xy' in self.size_actions:
                     self.size_actions['xy'].setChecked(False)
+                if 'chord_selector' in self.size_actions:
+                    self.size_actions['chord_selector'].setChecked(False)
             except Exception:
                 pass
             try:

@@ -72,43 +72,71 @@ class MidiOut:
             print(f"Using pygame backend with port: {name}")
 
     def note_on(self, note: int, velocity: int, channel: int = 0):
-        velocity = max(1, min(127, velocity))
-        if self.use_pygame:
-            # pygame MIDI format: [status_byte, data1, data2]
-            status = 0x90 + channel  # note on + channel
-            self.port.write_short(status, note, velocity)
-        else:
-            self.port.send(mido.Message("note_on", note=note, velocity=velocity, channel=channel))
+        try:
+            velocity = max(1, min(127, velocity))
+            if self.use_pygame:
+                # pygame MIDI format: [status_byte, data1, data2]
+                status = 0x90 + channel  # note on + channel
+                self.port.write_short(status, note, velocity)
+            else:
+                self.port.send(mido.Message("note_on", note=note, velocity=velocity, channel=channel))
+        except (ValueError, AttributeError, RuntimeError):
+            # Port might be closed or unavailable - silently ignore
+            pass
+        except Exception:
+            # Other errors - also ignore to prevent crashes
+            pass
 
     def note_off(self, note: int, channel: int = 0):
-        if self.use_pygame:
-            # pygame MIDI format: [status_byte, data1, data2]
-            status = 0x80 + channel  # note off + channel
-            self.port.write_short(status, note, 0)
-        else:
-            self.port.send(mido.Message("note_off", note=note, velocity=0, channel=channel))
+        try:
+            if self.use_pygame:
+                # pygame MIDI format: [status_byte, data1, data2]
+                status = 0x80 + channel  # note off + channel
+                self.port.write_short(status, note, 0)
+            else:
+                self.port.send(mido.Message("note_off", note=note, velocity=0, channel=channel))
+        except (ValueError, AttributeError, RuntimeError):
+            # Port might be closed or unavailable - silently ignore
+            pass
+        except Exception:
+            # Other errors - also ignore to prevent crashes
+            pass
 
     def cc(self, cc: int, value: int, channel: int = 0):
-        value = max(0, min(127, value))
-        if self.use_pygame:
-            # pygame MIDI format: [status_byte, data1, data2]
-            status = 0xB0 + channel  # control change + channel
-            self.port.write_short(status, cc, value)
-        else:
-            self.port.send(mido.Message("control_change", control=cc, value=value, channel=channel))
+        try:
+            value = max(0, min(127, value))
+            if self.use_pygame:
+                # pygame MIDI format: [status_byte, data1, data2]
+                status = 0xB0 + channel  # control change + channel
+                self.port.write_short(status, cc, value)
+            else:
+                self.port.send(mido.Message("control_change", control=cc, value=value, channel=channel))
+        except (ValueError, AttributeError, RuntimeError):
+            # Port might be closed or unavailable - silently ignore
+            pass
+        except Exception:
+            # Other errors - also ignore to prevent crashes
+            pass
 
     def pitch_bend(self, value: int, channel: int = 0):
         """Send pitch bend value in range [-8192, 8191]."""
-        v = max(-8192, min(8191, int(value)))
-        if self.use_pygame:
-            # Convert to 14-bit unsigned 0..16383
-            v14 = v + 8192
-            lsb = v14 & 0x7F
-            msb = (v14 >> 7) & 0x7F
-            status = 0xE0 + channel
-            self.port.write_short(status, lsb, msb)
-        else:
-            self.port.send(mido.Message("pitchwheel", pitch=v, channel=channel))
+        try:
+            v = max(-8192, min(8191, int(value)))
+            if self.use_pygame:
+                # Convert to 14-bit unsigned 0..16383
+                v14 = v + 8192
+                lsb = v14 & 0x7F
+                msb = (v14 >> 7) & 0x7F
+                status = 0xE0 + channel
+                self.port.write_short(status, lsb, msb)
+            else:
+                self.port.send(mido.Message("pitchwheel", pitch=v, channel=channel))
+        except (ValueError, AttributeError, RuntimeError):
+            # Port might be closed or unavailable - silently ignore
+            pass
+        except Exception:
+            # Other errors - also ignore to prevent crashes
+            pass
 
     def close(self):
         """Close MIDI port and cleanup backend safely."""

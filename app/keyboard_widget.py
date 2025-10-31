@@ -1,10 +1,90 @@
-from PySide6.QtWidgets import QWidget, QPushButton, QGridLayout, QHBoxLayout, QVBoxLayout, QLabel, QSlider, QApplication, QSizePolicy, QCheckBox
-from PySide6.QtCore import Qt, QSize, QEvent, QPropertyAnimation, QEasingCurve, QRectF, QTimer
-from PySide6.QtGui import QPainter, QColor
+from PySide6.QtWidgets import QWidget, QPushButton, QGridLayout, QHBoxLayout, QVBoxLayout, QLabel, QSlider, QApplication, QSizePolicy, QCheckBox, QFrame
+from PySide6.QtCore import Qt, QSize, QEvent, QPropertyAnimation, QEasingCurve, QRectF, QTimer, QMimeData
+from PySide6.QtGui import QPainter, QColor, QDrag
+from typing import Optional
 import random
 from .models import Layout, KeyDef
 from .midi_io import MidiOut
 from .scale import quantize
+from .chord_selector import detect_chord, NOTES
+
+
+class KeyboardChordCard(QFrame):
+    """A draggable chord card shown on the keyboard when latch is on."""
+    def __init__(self, root_note: int, chord_type: str, actual_notes: list[int] = None, parent: QWidget = None):
+        super().__init__(parent)
+        self.root_note = root_note
+        self.chord_type = chord_type
+        self.actual_notes = actual_notes or []  # Store actual MIDI notes for exact replay
+        # Make card wider to accommodate longer chord names on one line
+        self.setFixedSize(140, 30)
+        self.setFrameStyle(QFrame.Box)
+        self.setStyleSheet("""
+            KeyboardChordCard {
+                background-color: #2b2f36;
+                border: 2px solid #2f82e6;
+                border-radius: 6px;
+                padding: 2px 6px;
+            }
+            KeyboardChordCard:hover {
+                border: 2px solid #4fa3ff;
+                background-color: #3a3f46;
+            }
+        """)
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(4)
+        
+        # Single line: Root note + Chord type
+        root_text = NOTES[root_note % 12]
+        full_text = f"{root_text} {chord_type}"
+        chord_label = QLabel(full_text)
+        chord_label.setStyleSheet("font-size: 11px; color: #fff; font-weight: bold;")
+        chord_label.setAlignment(Qt.AlignCenter)
+        chord_label.setWordWrap(False)  # No word wrap - keep on one line
+        layout.addWidget(chord_label)
+        
+        self.setCursor(Qt.OpenHandCursor)
+
+    def mousePressEvent(self, event):
+        """Start drag operation."""
+        if event.button() == Qt.LeftButton:
+            self.drag_start_position = event.pos()
+            self.setCursor(Qt.ClosedHandCursor)
+
+    def mouseMoveEvent(self, event):
+        """Handle drag movement."""
+        if not (event.buttons() & Qt.LeftButton):
+            return
+        if (event.pos() - self.drag_start_position).manhattanLength() < 10:
+            return
+        
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        # Store chord data as text
+        # Include actual notes if available for exact replay
+        if self.actual_notes:
+            notes_str = ",".join(str(n) for n in self.actual_notes)
+            chord_data = f"{self.root_note}:{self.chord_type}:{notes_str}"
+        else:
+            chord_data = f"{self.root_note}:{self.chord_type}"
+        mime_data.setText(chord_data)
+        drag.setMimeData(mime_data)
+        
+        # Create a pixmap for drag preview
+        pixmap = self.grab()
+        if pixmap:
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(event.pos())
+        
+        # Use CopyAction for cross-window drags (MoveAction doesn't work across windows)
+        result = drag.exec_(Qt.CopyAction | Qt.MoveAction)
+        self.setCursor(Qt.OpenHandCursor)
+
+    def mouseReleaseEvent(self, event):
+        """Reset cursor on release."""
+        self.setCursor(Qt.OpenHandCursor)
 
 def velocity_curve(v_in: int, curve: str) -> int:
     v = max(1, min(127, v_in))
@@ -237,6 +317,7 @@ class KeyboardWidget(QWidget):
         self.octave_offset = 0
         self.sustain = False
         self.latch = False
+        self.chord_monitor = False  # Enable chord detection and display
         self.visual_hold_on_sustain = False  # whether sustained notes keep visual down state
         self.vel_curve = "linear"
         self.active_notes: set[tuple[int,int]] = set()
@@ -514,6 +595,16 @@ class KeyboardWidget(QWidget):
         header.addWidget(self.oct_minus_btn)
         header.addWidget(self.oct_label)
         header.addWidget(self.oct_plus_btn)
+        # Chord card (shown when chord monitor is on and chord is detected)
+        self.current_chord_card: Optional[QFrame] = None
+        self.chord_card_container = QWidget()
+        # Always keep container at fixed size to prevent UI shifting
+        # Card is 30px + 2px border top + 2px border bottom = 34px, plus extra bottom margin for clearance
+        self.chord_card_container.setFixedSize(140, 36)
+        # Initialize with empty layout - add margins to give border space
+        empty_layout = QVBoxLayout(self.chord_card_container)
+        empty_layout.setContentsMargins(0, 2, 0, 4)
+        header.addWidget(self.chord_card_container)
         header.addWidget(self.vel_label)
         header.addWidget(self.vel_random_chk)
         header.addWidget(self.vel_slider)
@@ -557,6 +648,7 @@ class KeyboardWidget(QWidget):
             controls.addWidget(self.oct_minus_btn)
             controls.addWidget(self.oct_label)
             controls.addWidget(self.oct_plus_btn)
+            controls.addWidget(self.chord_card_container)
             controls.addWidget(self.sustain_btn)
             controls.addWidget(self.latch_btn)
             controls.addWidget(self.all_off_btn)
@@ -1073,6 +1165,7 @@ class KeyboardWidget(QWidget):
         # Latch handling: toggle if already active
         if getattr(self, 'latch', False):
             if (note, ch) in self.active_notes:
+                # Note is already active - turn it off
                 try:
                     self.midi.note_off(note, ch)
                 except Exception:
@@ -1087,7 +1180,11 @@ class KeyboardWidget(QWidget):
                 except Exception:
                     pass
                 self._apply_note_visual(base_note, False, False)
+                # Update chord card after removing note (if chord monitor is on)
+                if getattr(self, 'chord_monitor', False):
+                    self._update_chord_card()
                 return
+            # Note is not active yet - continue to add it below
         # Polyphony enforce (steal oldest)
         if getattr(self, 'polyphony_enabled', False):
             try:
@@ -1111,7 +1208,14 @@ class KeyboardWidget(QWidget):
             pass
         self.active_notes.add((note, ch))
         self._voice_order.append((note, ch, base_note))
-        self._apply_note_visual(base_note, True, False)
+        # In latch mode, use held visual state, otherwise just active
+        if getattr(self, 'latch', False):
+            self._apply_note_visual(base_note, True, True)  # held state for latched notes
+        else:
+            self._apply_note_visual(base_note, True, False)
+        # Update chord card if chord monitor is on
+        if getattr(self, 'chord_monitor', False):
+            self._update_chord_card()
         # Begin drag tracking if neither latch nor sustain
         if not getattr(self, 'latch', False) and not getattr(self, 'sustain', False):
             self.dragging = True
@@ -1161,6 +1265,9 @@ class KeyboardWidget(QWidget):
             except Exception:
                 pass
             self._apply_note_visual(base_note, False, False)
+            # Update chord card if chord monitor is on (for tracking individual notes)
+            if getattr(self, 'chord_monitor', False):
+                self._update_chord_card()
             self._sync_visuals_if_needed()
         else:
             # sustain on: clear visuals but keep sounding
@@ -1472,9 +1579,19 @@ class KeyboardWidget(QWidget):
         if prev and not self.latch:
             # When turning latch OFF, release everything immediately (no flash)
             self._perform_all_notes_off()
+            self._update_chord_card()
+        elif self.latch:
+            # When turning latch ON, update chord card if notes are active
+            self._update_chord_card()
 
     def toggle_latch(self):
         self.set_latch(self.latch_btn.isChecked())
+
+    def set_chord_monitor(self, checked: bool):
+        """Enable/disable chord monitor mode."""
+        self.chord_monitor = bool(checked)
+        # Update chord card when toggling
+        self._update_chord_card()
 
     def keyPressEvent(self, event):
         k = event.key()
@@ -1503,6 +1620,65 @@ class KeyboardWidget(QWidget):
         try:
             for btn in self.key_buttons.values():
                 self._apply_btn_visual(btn, False, False)
+        except Exception:
+            pass
+        # Hide chord card
+        self._update_chord_card()
+
+    def _update_chord_card(self):
+        """Update or hide the chord card based on active notes when chord monitor is on."""
+        try:
+            # Remove existing card but keep container visible at fixed size
+            if self.current_chord_card is not None:
+                self.current_chord_card.deleteLater()
+                self.current_chord_card = None
+            
+            # Get or ensure layout exists
+            card_layout = self.chord_card_container.layout()
+            if card_layout is None:
+                card_layout = QVBoxLayout(self.chord_card_container)
+                card_layout.setContentsMargins(0, 2, 0, 4)
+            else:
+                # Update margins if they were changed
+                card_layout.setContentsMargins(0, 2, 0, 4)
+                # Clear existing widgets
+                while card_layout.count():
+                    item = card_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+            
+            # Only show if chord monitor is on and we have active notes
+            if not getattr(self, 'chord_monitor', False):
+                # Keep container visible but empty
+                return
+            
+            # Get active notes (only from current channel)
+            active_notes = [note for note, ch in self.active_notes if ch == self.midi_channel]
+            # Show card even for single notes (user requested this)
+            if len(active_notes) < 1:
+                return
+            
+            # For single notes, just show the note name
+            if len(active_notes) == 1:
+                # Show just the note name
+                note = active_notes[0]
+                root_pc = note % 12
+                card = KeyboardChordCard(root_pc, "Note", active_notes, self.chord_card_container)
+                card_layout.addWidget(card)
+                
+                self.current_chord_card = card
+                return
+            
+            # Detect chord
+            root_pc, chord_type = detect_chord(active_notes)
+            if root_pc is None or chord_type is None:
+                return
+            
+            # Create chord card with actual notes for exact replay
+            card = KeyboardChordCard(root_pc, chord_type, active_notes, self.chord_card_container)
+            card_layout.addWidget(card)
+            
+            self.current_chord_card = card
         except Exception:
             pass
 
