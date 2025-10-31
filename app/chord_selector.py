@@ -5,66 +5,15 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QMimeData, QPoint, QTimer, QRectF
 from PySide6.QtGui import QDrag, QPainter, QColor, QFont
-from typing import List, Tuple, Optional, Callable, Iterable, Dict, Set, FrozenSet
+from typing import List, Tuple, Optional, Callable, Iterable, Dict, Set, FrozenSet, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Any
+    from .keyboard_widget import RangeSlider
 from dataclasses import dataclass
 from collections import defaultdict
 import random
 from .midi_io import MidiOut
-
-# Import RangeSlider from keyboard_widget
-try:
-    from .keyboard_widget import RangeSlider
-except Exception:
-    # Fallback minimal implementation if import fails
-    class RangeSlider(QWidget):
-        def __init__(self, minimum=1, maximum=127, low=64, high=100, parent=None):
-            super().__init__(parent)
-            self._min = int(minimum)
-            self._max = int(maximum)
-            self._low = int(max(self._min, min(low, maximum)))
-            self._high = int(max(self._min, min(high, maximum)))
-            self.setFixedHeight(22)
-            self.setMinimumWidth(200)
-        def setRange(self, minimum: int, maximum: int):
-            self._min = int(minimum)
-            self._max = int(maximum)
-        def setValues(self, low: int, high: int):
-            self._low, self._high = int(low), int(high)
-            self.update()
-        def values(self):
-            return int(self._low), int(self._high)
-        def _pos_to_value(self, x: float) -> int:
-            w = max(1, self.width() - 10)
-            frac = min(1.0, max(0.0, (x - 5) / w))
-            return int(round(self._min + frac * (self._max - self._min)))
-        def _value_to_pos(self, v: int) -> float:
-            rng = max(1, self._max - self._min)
-            frac = (int(v) - self._min) / rng
-            return 5 + frac * (self.width() - 10)
-        def paintEvent(self, _):  # type: ignore[override]
-            p = QPainter(self)
-            p.setRenderHint(QPainter.Antialiasing)
-            # Groove (thicker)
-            groove_h = 8
-            groove = QRectF(5, self.height() / 2 - groove_h/2, max(1, self.width() - 10), groove_h)
-            p.setBrush(QColor('#3a3f46'))
-            p.setPen(QColor('#2a2f35'))
-            p.drawRoundedRect(groove, 3, 3)
-            # Range selection
-            x1 = self._value_to_pos(self._low)
-            x2 = self._value_to_pos(self._high)
-            sel = QRectF(min(x1, x2), groove.top(), max(2.0, abs(x2 - x1)), groove_h)
-            p.setBrush(QColor('#61b3ff'))
-            p.setPen(QColor('#2f82e6'))
-            p.drawRoundedRect(sel, 3, 3)
-            # Handles
-            handle_w, handle_h = 12, 20
-            for xv in (x1, x2):
-                handle = QRectF(xv - handle_w/2, self.height() / 2 - handle_h/2, handle_w, handle_h)
-                p.setBrush(QColor('#eaeaea'))
-                p.setPen(QColor('#5a5f66'))
-                p.drawRoundedRect(handle, 3, 3)
-            p.end()
 
 # Chord definitions: (root_note_offset, intervals)
 # Intervals are relative to root, in semitones (0-11 for one octave, can extend beyond)
@@ -284,8 +233,8 @@ class Match:
 
 def score_match(chord_set: FrozenSet[int],
                 templ_set: FrozenSet[int],
-                allow_omit_third=True,
-                allow_omit_fifth=True) -> Tuple[float, Set[int], Set[int]]:
+                allow_omit_third: bool = True,
+                allow_omit_fifth: bool = True) -> Tuple[float, Set[int], Set[int]]:
     """
     Score how well a chord set matches a template.
     Positive for covered tones, small penalty for extras, small penalty for allowed omissions,
@@ -314,12 +263,12 @@ def score_match(chord_set: FrozenSet[int],
         - 1.5 * len(essential_missing)
         - 0.25 * len(optional_missing)
     )
-    return score, essential_missing | optional_missing, extras
+    return score, essential_missing | optional_missing, set(extras)
 
 def detect_chords_improved(notes: Iterable[int],
-                  prefer_flats=False,
-                  include_dyads=False,
-                  top_k=5) -> List[Match]:
+                  prefer_flats: bool = False,
+                  include_dyads: bool = False,
+                  top_k: int = 5) -> List[Match]:
     """
     Improved chord detection with scoring system.
     Returns ranked matches with root and score.
@@ -424,14 +373,17 @@ def detect_chord(notes: list[int]) -> tuple[Optional[int], Optional[str]]:
 
 class ReplayCard(QFrame):
     """A clickable card in the replay area that plays a chord."""
-    def __init__(self, root_note: int, chord_type: str, replay_area: 'ReplayArea', actual_notes: list[int] = None, parent: QWidget = None):
+    _slot_index: Optional[int]  # For grid tracking
+    
+    def __init__(self, root_note: int, chord_type: str, replay_area: 'ReplayArea', actual_notes: Optional[List[int]] = None, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.root_note = root_note
         self.chord_type = chord_type
         self.actual_notes = actual_notes or []  # Store actual MIDI notes for exact replay
         self.replay_area = replay_area
+        self._slot_index = None
         self.setFixedSize(120, 80)
-        self.setFrameStyle(QFrame.Box)
+        self.setFrameStyle(QFrame.Shape.Box)
         self.setAcceptDrops(True)  # Allow drops on cards to replace them
         self.setStyleSheet("""
             ReplayCard {
@@ -453,28 +405,28 @@ class ReplayCard(QFrame):
         # Root note label
         root_label = QLabel(NOTES[root_note % 12])
         root_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #fff;")
-        root_label.setAlignment(Qt.AlignCenter)
+        root_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(root_label)
         
         # Chord type label
         type_label = QLabel(chord_type)
         type_label.setStyleSheet("font-size: 12px; color: #aaa;")
-        type_label.setAlignment(Qt.AlignCenter)
+        type_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         type_label.setWordWrap(True)
         layout.addWidget(type_label)
         
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
     
-    def dragEnterEvent(self, event):
+    def dragEnterEvent(self, event):  # type: ignore[override]
         """Accept drag events on the card."""
         if event.mimeData().hasText():
-            event.setDropAction(Qt.CopyAction)
+            event.setDropAction(Qt.DropAction.CopyAction)
             event.accept()
     
-    def dragMoveEvent(self, event):
+    def dragMoveEvent(self, event):  # type: ignore[override]
         """Handle drag move on the card."""
         if event.mimeData().hasText():
-            event.setDropAction(Qt.CopyAction)
+            event.setDropAction(Qt.DropAction.CopyAction)
             event.accept()
     
     def dropEvent(self, event):
@@ -522,14 +474,14 @@ class ReplayCard(QFrame):
                     # Update grid tracking
                     self.replay_area.grid_positions[slot_idx] = self
             
-            event.setDropAction(Qt.CopyAction)
+            event.setDropAction(Qt.DropAction.CopyAction)
             event.accept()
         except Exception:
             pass
     
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event):  # type: ignore[override]
         """Play chord when clicked."""
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             # Use actual notes if available, otherwise generate from chord type
             if self.actual_notes:
                 self.replay_area._play_exact_notes(self.actual_notes)
@@ -539,12 +491,15 @@ class ReplayCard(QFrame):
 
 class ChordCard(QFrame):
     """A draggable card representing a chord."""
-    def __init__(self, root_note: int, chord_type: str, parent: QWidget = None):
+    drag_start_position: QPoint
+    
+    def __init__(self, root_note: int, chord_type: str, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.root_note = root_note
         self.chord_type = chord_type
+        self.drag_start_position = QPoint()
         self.setFixedSize(120, 80)
-        self.setFrameStyle(QFrame.Box)
+        self.setFrameStyle(QFrame.Shape.Box)
         self.setStyleSheet("""
             ChordCard {
                 background-color: #2b2f36;
@@ -565,27 +520,27 @@ class ChordCard(QFrame):
         # Root note label
         root_label = QLabel(NOTES[root_note % 12])
         root_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #fff;")
-        root_label.setAlignment(Qt.AlignCenter)
+        root_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(root_label)
         
         # Chord type label
         type_label = QLabel(chord_type)
         type_label.setStyleSheet("font-size: 12px; color: #aaa;")
-        type_label.setAlignment(Qt.AlignCenter)
+        type_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         type_label.setWordWrap(True)
         layout.addWidget(type_label)
         
-        self.setCursor(Qt.OpenHandCursor)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event):  # type: ignore[override]
         """Start drag operation."""
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.drag_start_position = event.pos()
-            self.setCursor(Qt.ClosedHandCursor)
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
 
-    def mouseMoveEvent(self, event):
+    def mouseMoveEvent(self, event):  # type: ignore[override]
         """Handle drag movement."""
-        if not (event.buttons() & Qt.LeftButton):
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
             return
         if (event.pos() - self.drag_start_position).manhattanLength() < 10:
             return
@@ -604,21 +559,27 @@ class ChordCard(QFrame):
             drag.setHotSpot(event.pos())
         
         # Use CopyAction for cross-window drags (MoveAction doesn't work across windows)
-        result = drag.exec_(Qt.CopyAction | Qt.MoveAction)
-        self.setCursor(Qt.OpenHandCursor)
+        result = drag.exec_(Qt.DropAction.CopyAction | Qt.DropAction.MoveAction)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
 
-    def mouseReleaseEvent(self, event):
+    def mouseReleaseEvent(self, event):  # type: ignore[override]
         """Reset cursor on release."""
-        self.setCursor(Qt.OpenHandCursor)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
 
 
 class ReplayArea(QWidget):
     """Area where chord cards can be dropped and clicked to replay."""
-    def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: QWidget = None):
+    _layout: QHBoxLayout
+    grid_positions: Dict[int, ReplayCard]  # For chord monitor compatibility
+    _parent_widget: Optional['ChordSelectorWidget']  # For velocity access
+    
+    def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.midi = midi_out
         self.midi_channel = midi_channel
         self.cards: List[ReplayCard] = []
+        self.grid_positions = {}
+        self._parent_widget = None
         
         self.setAcceptDrops(True)
         self.setMinimumHeight(120)
@@ -633,30 +594,30 @@ class ReplayArea(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
-        layout.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self.layout = layout
+        layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self._layout = layout
         
         # Placeholder label
         self.placeholder = QLabel("Drag chord cards here to replay")
         self.placeholder.setStyleSheet("color: #666; font-style: italic;")
-        self.placeholder.setAlignment(Qt.AlignCenter)
+        self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.placeholder)
         
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
-    def dragEnterEvent(self, event):
+    def dragEnterEvent(self, event):  # type: ignore[override]
         """Accept drag events."""
         if event.mimeData().hasText():
-            event.setDropAction(Qt.CopyAction)
+            event.setDropAction(Qt.DropAction.CopyAction)
             event.accept()
 
-    def dragMoveEvent(self, event):
+    def dragMoveEvent(self, event):  # type: ignore[override]
         """Handle drag move."""
         if event.mimeData().hasText():
-            event.setDropAction(Qt.CopyAction)
+            event.setDropAction(Qt.DropAction.CopyAction)
             event.accept()
 
-    def dropEvent(self, event):
+    def dropEvent(self, event):  # type: ignore[override]
         """Handle dropped chord card."""
         if not event.mimeData().hasText():
             return
@@ -669,7 +630,7 @@ class ReplayArea(QWidget):
             root_note = int(root_note_str)
             
             # Parse actual notes if present (format: "root:type:note1,note2,note3")
-            actual_notes = None
+            actual_notes: Optional[List[int]] = None
             if len(parts) >= 3 and parts[2]:
                 try:
                     actual_notes = [int(n) for n in parts[2].split(",") if n.strip()]
@@ -683,9 +644,9 @@ class ReplayArea(QWidget):
             # Create a new card in the replay area with actual notes
             card = ReplayCard(root_note, chord_type, self, actual_notes)
             self.cards.append(card)
-            self.layout.addWidget(card)
+            self._layout.addWidget(card)
             
-            event.setDropAction(Qt.CopyAction)
+            event.setDropAction(Qt.DropAction.CopyAction)
             event.accept()
         except Exception:
             pass
@@ -694,30 +655,29 @@ class ReplayArea(QWidget):
         """Play the chord when card is clicked."""
         self._play_chord(root_note, chord_type)
     
-    def _play_exact_notes(self, notes: list[int]):
+    def _play_exact_notes(self, notes: List[int]) -> None:
         """Play exact MIDI notes (preserves octave and voicing)."""
         if not notes:
             return
         
         # Get velocity from parent widget if available
         velocity = 100
-        if hasattr(self.replay_area, '_parent_widget'):
-            parent = self.replay_area._parent_widget
-            if hasattr(parent, '_get_velocity'):
-                velocity = parent._get_velocity()
+        if self._parent_widget is not None:
+            if hasattr(self._parent_widget, '_get_velocity'):
+                velocity = self._parent_widget._get_velocity()
         
         # Play all notes
         for note in notes:
             self.midi.note_on(note, velocity, self.midi_channel)
         
         # Schedule note offs after a short duration (200ms)
-        def release_notes():
+        def release_notes() -> None:
             for note in notes:
                 self.midi.note_off(note, self.midi_channel)
         
         QTimer.singleShot(200, release_notes)
 
-    def _play_chord(self, root_note: int, chord_type: str):
+    def _play_chord(self, root_note: int, chord_type: str) -> None:
         """Play a chord using MIDI."""
         if chord_type not in CHORD_DEFINITIONS:
             return
@@ -727,10 +687,9 @@ class ReplayArea(QWidget):
         
         # Get velocity from parent widget if available
         velocity = 100
-        if hasattr(self, '_parent_widget'):
-            parent = self._parent_widget
-            if hasattr(parent, '_get_velocity'):
-                velocity = parent._get_velocity()
+        if self._parent_widget is not None:
+            if hasattr(self._parent_widget, '_get_velocity'):
+                velocity = self._parent_widget._get_velocity()
         
         # Play all notes of the chord
         for interval in intervals:
@@ -738,7 +697,7 @@ class ReplayArea(QWidget):
             self.midi.note_on(note, velocity, self.midi_channel)
         
         # Schedule note offs after a short duration (200ms)
-        def release_notes():
+        def release_notes() -> None:
             for interval in intervals:
                 note = base_note + interval
                 self.midi.note_off(note, self.midi_channel)
@@ -746,15 +705,19 @@ class ReplayArea(QWidget):
         # Use QTimer for delayed release
         QTimer.singleShot(200, release_notes)
 
-    def set_channel(self, channel: int):
+    def set_channel(self, channel: int) -> None:
         """Update MIDI channel."""
         self.midi_channel = channel
 
 
 class ChordSelectorWidget(QWidget):
     """Main widget for chord selection and management."""
-    def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: QWidget = None):
+    def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
         super().__init__(parent)
+        # Late import to avoid circular dependency
+        from .keyboard_widget import RangeSlider  # noqa: F811
+        self._RangeSlider = RangeSlider
+        
         self.midi = midi_out
         self.midi_channel = midi_channel
         self.current_card: Optional[ChordCard] = None
@@ -857,7 +820,7 @@ class ChordSelectorWidget(QWidget):
         velocity_layout.addWidget(vel_label)
         
         # Single velocity slider (when randomization is off)
-        self.vel_slider = QSlider(Qt.Horizontal)
+        self.vel_slider = QSlider(Qt.Orientation.Horizontal)
         self.vel_slider.setMinimum(1)
         self.vel_slider.setMaximum(127)
         self.vel_slider.setValue(100)
@@ -885,11 +848,11 @@ class ChordSelectorWidget(QWidget):
         velocity_layout.addWidget(self.vel_slider)
         
         # Range slider (when randomization is on)
-        self.vel_range = RangeSlider(1, 127, low=80, high=110, parent=self)
+        self.vel_range = self._RangeSlider(1, 127, low=80, high=110, parent=self)
         self.vel_range.setFixedWidth(200)
         self.vel_range.setMinimumHeight(22)
         self.vel_range.setFixedHeight(22)
-        self.vel_range.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.vel_range.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         velocity_layout.addWidget(self.vel_range)
         
         # Randomize checkbox
@@ -943,11 +906,11 @@ class ChordSelectorWidget(QWidget):
         """)
         current_layout = QVBoxLayout(self.current_area)
         current_layout.setContentsMargins(10, 10, 10, 10)
-        current_layout.setAlignment(Qt.AlignCenter)
+        current_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.current_placeholder = QLabel("No chord selected")
         self.current_placeholder.setStyleSheet("color: #666; font-style: italic;")
-        self.current_placeholder.setAlignment(Qt.AlignCenter)
+        self.current_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         current_layout.addWidget(self.current_placeholder)
         
         layout.addWidget(self.current_area)
@@ -962,7 +925,7 @@ class ChordSelectorWidget(QWidget):
         self.replay_area._parent_widget = self
         layout.addWidget(self.replay_area)
 
-    def _on_select_chord(self):
+    def _on_select_chord(self) -> None:
         """Handle chord selection."""
         root_index = self.root_combo.currentIndex()
         root_note = root_index % 12
@@ -980,12 +943,13 @@ class ChordSelectorWidget(QWidget):
         # Create new current card
         current_layout = self.current_area.layout()
         self.current_card = ChordCard(root_note, chord_type, self.current_area)
-        current_layout.addWidget(self.current_card, alignment=Qt.AlignCenter)
+        if current_layout and isinstance(current_layout, QVBoxLayout):
+            current_layout.addWidget(self.current_card, 0, Qt.AlignmentFlag.AlignCenter)
         
         # Play the chord
         self._play_chord(root_note, chord_type)
 
-    def _play_chord(self, root_note: int, chord_type: str):
+    def _play_chord(self, root_note: int, chord_type: str) -> None:
         """Play a chord using MIDI."""
         if chord_type not in CHORD_DEFINITIONS:
             return
@@ -1002,19 +966,19 @@ class ChordSelectorWidget(QWidget):
             self.midi.note_on(note, velocity, self.midi_channel)
         
         # Schedule note offs after a short duration (500ms)
-        def release_notes():
+        def release_notes() -> None:
             for interval in intervals:
                 note = base_note + interval
                 self.midi.note_off(note, self.midi_channel)
         
         QTimer.singleShot(500, release_notes)
 
-    def set_channel(self, channel: int):
+    def set_channel(self, channel: int) -> None:
         """Update MIDI channel."""
         self.midi_channel = channel
         self.replay_area.set_channel(channel)
     
-    def _toggle_vel_random(self, checked: bool):
+    def _toggle_vel_random(self, checked: bool) -> None:
         """Switch between fixed velocity slider and range slider."""
         random_mode = bool(checked)
         try:

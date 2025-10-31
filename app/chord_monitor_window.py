@@ -3,74 +3,28 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QFrame, QSizePolicy, QMainWindow, QPushButton, QSlider, QCheckBox
 )
 from PySide6.QtCore import Qt, QMimeData, QEvent, QTimer, QRectF
-from PySide6.QtGui import QDrag, QIcon, QPainter, QColor
-from typing import List, Optional
+from PySide6.QtGui import QIcon, QPainter, QColor
+from typing import List, Optional, TYPE_CHECKING, Union, Any
 from pathlib import Path
 import random
 from .midi_io import MidiOut
 from .chord_selector import ReplayCard, NOTES, CHORD_DEFINITIONS
 
-# Import RangeSlider from keyboard_widget
-try:
+if TYPE_CHECKING:
     from .keyboard_widget import RangeSlider
-except Exception:
-    # Fallback minimal implementation if import fails
-    class RangeSlider(QWidget):
-        def __init__(self, minimum=1, maximum=127, low=64, high=100, parent=None):
-            super().__init__(parent)
-            self._min = int(minimum)
-            self._max = int(maximum)
-            self._low = int(max(self._min, min(low, maximum)))
-            self._high = int(max(self._min, min(high, maximum)))
-            self.setFixedHeight(22)
-            self.setMinimumWidth(200)
-        def setRange(self, minimum: int, maximum: int):
-            self._min = int(minimum)
-            self._max = int(maximum)
-        def setValues(self, low: int, high: int):
-            self._low, self._high = int(low), int(high)
-            self.update()
-        def values(self):
-            return int(self._low), int(self._high)
-        def _pos_to_value(self, x: float) -> int:
-            w = max(1, self.width() - 10)
-            frac = min(1.0, max(0.0, (x - 5) / w))
-            return int(round(self._min + frac * (self._max - self._min)))
-        def _value_to_pos(self, v: int) -> float:
-            rng = max(1, self._max - self._min)
-            frac = (int(v) - self._min) / rng
-            return 5 + frac * (self.width() - 10)
-        def paintEvent(self, _):  # type: ignore[override]
-            p = QPainter(self)
-            p.setRenderHint(QPainter.Antialiasing)
-            groove_h = 8
-            groove = QRectF(5, self.height() / 2 - groove_h/2, max(1, self.width() - 10), groove_h)
-            p.setBrush(QColor('#3a3f46'))
-            p.setPen(QColor('#2a2f35'))
-            p.drawRoundedRect(groove, 3, 3)
-            x1 = self._value_to_pos(self._low)
-            x2 = self._value_to_pos(self._high)
-            sel = QRectF(min(x1, x2), groove.top(), max(2.0, abs(x2 - x1)), groove_h)
-            p.setBrush(QColor('#61b3ff'))
-            p.setPen(QColor('#2f82e6'))
-            p.drawRoundedRect(sel, 3, 3)
-            handle_w, handle_h = 12, 20
-            for xv in (x1, x2):
-                handle = QRectF(xv - handle_w/2, self.height() / 2 - handle_h/2, handle_w, handle_h)
-                p.setBrush(QColor('#eaeaea'))
-                p.setPen(QColor('#5a5f66'))
-                p.drawRoundedRect(handle, 3, 3)
-            p.end()
 
 
 class ChordMonitorReplayArea(QWidget):
     """A 2x4 grid replay area for chord cards - styled like pad grid."""
-    def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: QWidget = None):
+    _parent_window: Optional['ChordMonitorWindow']  # For velocity access
+    
+    def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.midi = midi_out
         self.midi_channel = midi_channel
         self.cards: List[ReplayCard] = []
         self.sustain: bool = False
+        self._parent_window = None
         
         self.setAcceptDrops(True)
         self.setStyleSheet("""
@@ -90,7 +44,7 @@ class ChordMonitorReplayArea(QWidget):
         
         # Create empty placeholder buttons for all 8 slots (2 rows x 4 columns)
         self.grid_positions: List[Optional[ReplayCard]] = [None] * 8
-        self.placeholder_buttons: List[QPushButton] = []
+        self.placeholder_buttons: List[Optional[QPushButton]] = []
         
         for i in range(8):
             row = i // 4
@@ -100,7 +54,7 @@ class ChordMonitorReplayArea(QWidget):
             placeholder = QPushButton("")
             placeholder.setCheckable(False)
             placeholder.setFixedSize(btn_size, btn_size)
-            placeholder.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            placeholder.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             placeholder.setStyleSheet("""
                 QPushButton {
                     background: #2b2f36;
@@ -113,7 +67,7 @@ class ChordMonitorReplayArea(QWidget):
                 }
             """)
             placeholder.setAcceptDrops(True)
-            placeholder.setFocusPolicy(Qt.NoFocus)
+            placeholder.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             
             # Install event filter to handle drops on buttons
             placeholder.installEventFilter(self)
@@ -127,19 +81,19 @@ class ChordMonitorReplayArea(QWidget):
         width = (btn_size * 4) + (gap * 3) + margins
         height = (btn_size * 2) + (gap * 1) + margins
         self.setFixedSize(width, height)
-        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
     
     def eventFilter(self, obj, event):  # type: ignore
         """Handle drag and drop events on placeholder buttons."""
         if obj in self.placeholder_buttons:
             if event.type() == QEvent.Type.DragEnter:
                 if event.mimeData().hasText():  # type: ignore
-                    event.setDropAction(Qt.CopyAction)  # type: ignore
+                    event.setDropAction(Qt.DropAction.CopyAction)  # type: ignore
                     event.accept()  # type: ignore
                     return True
             elif event.type() == QEvent.Type.DragMove:
                 if event.mimeData().hasText():  # type: ignore
-                    event.setDropAction(Qt.CopyAction)  # type: ignore
+                    event.setDropAction(Qt.DropAction.CopyAction)  # type: ignore
                     event.accept()  # type: ignore
                     return True
             elif event.type() == QEvent.Type.Drop:
@@ -182,21 +136,23 @@ class ChordMonitorReplayArea(QWidget):
                             self.grid_positions[button_index] = None
                         
                         # Remove placeholder button
-                        button.hide()
-                        button.setParent(None)
-                        button.deleteLater()
+                        if isinstance(button, QPushButton):
+                            button.hide()
+                            button.setParent(None)  # type: ignore[arg-type]
+                            button.deleteLater()
                         self.placeholder_buttons[button_index] = None
                         
                         # Create new card at this slot
                         self._create_card_at_slot(button_index, root_note, chord_type, actual_notes)
-                        event.setDropAction(Qt.CopyAction)  # type: ignore
+                        event.setDropAction(Qt.DropAction.CopyAction)  # type: ignore
                         event.accept()  # type: ignore
                         return True
                     
                     # Fallback: handle as regular button drop
-                    self._handle_drop_on_button(button, event)  # type: ignore
+                    if isinstance(button, QPushButton):
+                        self._handle_drop_on_button(button, event)  # type: ignore
                     return True
-        return super().eventFilter(obj, event)
+        return super().eventFilter(obj, event)  # type: ignore[arg-type]
     
     def _handle_drop_on_button(self, button: QPushButton, event):  # type: ignore
         """Handle a drop event on a specific placeholder button."""
@@ -237,24 +193,24 @@ class ChordMonitorReplayArea(QWidget):
             # Create new card at this slot
             self._create_card_at_slot(slot_index, root_note, chord_type, actual_notes)
             
-            event.setDropAction(Qt.CopyAction)  # type: ignore
+            event.setDropAction(Qt.DropAction.CopyAction)  # type: ignore
             event.accept()  # type: ignore
         except Exception:
             pass
 
-    def dragEnterEvent(self, event):
+    def dragEnterEvent(self, event):  # type: ignore[override]
         """Accept drag events on the widget itself."""
         if event.mimeData().hasText():
-            event.setDropAction(Qt.CopyAction)
+            event.setDropAction(Qt.DropAction.CopyAction)
             event.accept()
 
-    def dragMoveEvent(self, event):
+    def dragMoveEvent(self, event):  # type: ignore[override]
         """Handle drag move on the widget itself."""
         if event.mimeData().hasText():
-            event.setDropAction(Qt.CopyAction)
+            event.setDropAction(Qt.DropAction.CopyAction)
             event.accept()
 
-    def dropEvent(self, event):
+    def dropEvent(self, event):  # type: ignore[override]
         """Handle dropped chord card on the widget itself (fallback).
         
         This should only handle drops that don't land on a specific card or button.
@@ -324,7 +280,7 @@ class ChordMonitorReplayArea(QWidget):
                 # Create new card at this slot
                 self._create_card_at_slot(slot_index, root_note, chord_type, actual_notes)
             
-            event.setDropAction(Qt.CopyAction)  # type: ignore
+            event.setDropAction(Qt.DropAction.CopyAction)  # type: ignore
             event.accept()  # type: ignore
         except Exception:
             pass
@@ -372,13 +328,13 @@ class ChordMonitorReplayArea(QWidget):
             pass
         return None
     
-    def _create_card_at_slot(self, slot_index: int, root_note: int, chord_type: str, actual_notes: Optional[List[int]]):
+    def _create_card_at_slot(self, slot_index: int, root_note: int, chord_type: str, actual_notes: Optional[List[int]]) -> None:
         """Create a new chord card at the specified slot."""
         row = slot_index // 4
         col = slot_index % 4
         
         # Create new card (styled like pad button)
-        card = ReplayCard(root_note, chord_type, self, actual_notes)
+        card = ReplayCard(root_note, chord_type, self, actual_notes)  # type: ignore[arg-type]
         # Store slot index on card for easy lookup
         card._slot_index = slot_index  # type: ignore
         # Update card styling to match pad grid
@@ -425,7 +381,7 @@ class ChordMonitorReplayArea(QWidget):
         # Add to grid
         self.grid_layout.addWidget(card, row, col)
     
-    def _create_placeholder_at(self, slot_index: int):
+    def _create_placeholder_at(self, slot_index: int) -> None:
         """Create a placeholder button at the given slot index."""
         btn_size = 80
         row = slot_index // 4
@@ -434,7 +390,7 @@ class ChordMonitorReplayArea(QWidget):
         placeholder = QPushButton("")
         placeholder.setCheckable(False)
         placeholder.setFixedSize(btn_size, btn_size)
-        placeholder.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        placeholder.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         placeholder.setStyleSheet("""
             QPushButton {
                 background: #2b2f36;
@@ -447,27 +403,26 @@ class ChordMonitorReplayArea(QWidget):
             }
         """)
         placeholder.setAcceptDrops(True)
-        placeholder.setFocusPolicy(Qt.NoFocus)
+        placeholder.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         placeholder.installEventFilter(self)
         
         self.placeholder_buttons[slot_index] = placeholder
         self.grid_layout.addWidget(placeholder, row, col)
 
-    def _replay_chord(self, root_note: int, chord_type: str):
+    def _replay_chord(self, root_note: int, chord_type: str) -> None:
         """Play the chord when card is clicked."""
         self._play_chord(root_note, chord_type)
     
-    def _play_exact_notes(self, notes: list[int]):
+    def _play_exact_notes(self, notes: List[int]) -> None:
         """Play exact MIDI notes (preserves octave and voicing)."""
         if not notes:
             return
         
         # Get velocity from parent window if available
         velocity = 100
-        if hasattr(self, '_parent_window'):
-            parent = self._parent_window
-            if hasattr(parent, '_get_velocity'):
-                velocity = parent._get_velocity()
+        if self._parent_window is not None:
+            if hasattr(self._parent_window, '_get_velocity'):
+                velocity = self._parent_window._get_velocity()
         
         # Play all notes
         for note in notes:
@@ -475,12 +430,12 @@ class ChordMonitorReplayArea(QWidget):
         
         # Only schedule note offs if sustain is off
         if not self.sustain:
-            def release_notes():
+            def release_notes() -> None:
                 for note in notes:
                     self.midi.note_off(note, self.midi_channel)
             QTimer.singleShot(200, release_notes)
 
-    def _play_chord(self, root_note: int, chord_type: str):
+    def _play_chord(self, root_note: int, chord_type: str) -> None:
         """Play a chord using MIDI."""
         if chord_type not in CHORD_DEFINITIONS:
             return
@@ -490,10 +445,9 @@ class ChordMonitorReplayArea(QWidget):
         
         # Get velocity from parent window if available
         velocity = 100
-        if hasattr(self, '_parent_window'):
-            parent = self._parent_window
-            if hasattr(parent, '_get_velocity'):
-                velocity = parent._get_velocity()
+        if self._parent_window is not None:
+            if hasattr(self._parent_window, '_get_velocity'):
+                velocity = self._parent_window._get_velocity()
         
         # Play all notes of the chord
         for interval in intervals:
@@ -502,17 +456,17 @@ class ChordMonitorReplayArea(QWidget):
         
         # Only schedule note offs if sustain is off
         if not self.sustain:
-            def release_notes():
+            def release_notes() -> None:
                 for interval in intervals:
                     note = base_note + interval
                     self.midi.note_off(note, self.midi_channel)
             QTimer.singleShot(200, release_notes)
 
-    def set_channel(self, channel: int):
+    def set_channel(self, channel: int) -> None:
         """Update MIDI channel."""
         self.midi_channel = channel
     
-    def set_sustain(self, sustain: bool):
+    def set_sustain(self, sustain: bool) -> None:
         """Set sustain mode."""
         self.sustain = sustain
         # If turning sustain off, release all currently playing notes
@@ -524,8 +478,14 @@ class ChordMonitorReplayArea(QWidget):
 
 class ChordMonitorWindow(QMainWindow):
     """Simplified window containing just a 2x4 grid replay area."""
-    def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: QWidget = None):
+    _parent_main: Optional['Any']  # Reference to main window for close event handling
+    
+    def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
         super().__init__(parent)
+        # Late import to avoid circular dependency
+        from .keyboard_widget import RangeSlider  # noqa: F811
+        self._RangeSlider = RangeSlider
+        
         self.setWindowTitle("Chord Monitor")
         
         # Set window icon
@@ -552,7 +512,7 @@ class ChordMonitorWindow(QMainWindow):
         # Sustain button
         self.sustain_btn = QPushButton("Sustain: Off")
         self.sustain_btn.setCheckable(True)
-        self.sustain_btn.setCursor(Qt.PointingHandCursor)
+        self.sustain_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.sustain_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2b2f36;
@@ -580,7 +540,7 @@ class ChordMonitorWindow(QMainWindow):
         
         # All Notes Off button - match keyboard/pad grid style
         self.all_off_btn = QPushButton("All Notes Off")
-        self.all_off_btn.setCursor(Qt.PointingHandCursor)
+        self.all_off_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.all_off_btn.setStyleSheet("""
             QPushButton {
                 padding: 6px 16px;
@@ -616,7 +576,7 @@ class ChordMonitorWindow(QMainWindow):
         velocity_layout.addWidget(vel_label)
         
         # Single velocity slider (when randomization is off)
-        self.vel_slider = QSlider(Qt.Horizontal)
+        self.vel_slider = QSlider(Qt.Orientation.Horizontal)
         self.vel_slider.setMinimum(1)
         self.vel_slider.setMaximum(127)
         self.vel_slider.setValue(100)
@@ -644,11 +604,11 @@ class ChordMonitorWindow(QMainWindow):
         velocity_layout.addWidget(self.vel_slider)
         
         # Range slider (when randomization is on)
-        self.vel_range = RangeSlider(1, 127, low=80, high=110, parent=self)
+        self.vel_range = self._RangeSlider(1, 127, low=80, high=110, parent=self)
         self.vel_range.setFixedWidth(200)
         self.vel_range.setMinimumHeight(22)
         self.vel_range.setFixedHeight(22)
-        self.vel_range.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.vel_range.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         velocity_layout.addWidget(self.vel_range)
         
         # Randomize checkbox
@@ -684,7 +644,7 @@ class ChordMonitorWindow(QMainWindow):
         self.replay_area = ChordMonitorReplayArea(midi_out, midi_channel, central_widget)
         # Store reference to parent window in replay area for velocity access
         self.replay_area._parent_window = self
-        layout.addWidget(self.replay_area, alignment=Qt.AlignCenter)
+        layout.addWidget(self.replay_area, 0, Qt.AlignmentFlag.AlignCenter)
         
         layout.addStretch()
         
@@ -698,17 +658,17 @@ class ChordMonitorWindow(QMainWindow):
         self.resize(width, height)
         self.setMinimumSize(width, height)
     
-    def set_channel(self, channel: int):
+    def set_channel(self, channel: int) -> None:
         """Update MIDI channel."""
         self.replay_area.set_channel(channel)
     
-    def _toggle_sustain(self):
+    def _toggle_sustain(self) -> None:
         """Toggle sustain mode."""
         sustain = self.sustain_btn.isChecked()
         self.replay_area.set_sustain(sustain)
         self.sustain_btn.setText(f"Sustain: {'On' if sustain else 'Off'}")
     
-    def _toggle_vel_random(self, checked: bool):
+    def _toggle_vel_random(self, checked: bool) -> None:
         """Switch between fixed velocity slider and range slider."""
         random_mode = bool(checked)
         try:
@@ -725,7 +685,7 @@ class ChordMonitorWindow(QMainWindow):
         else:
             return self.vel_slider.value()
     
-    def _all_notes_off_clicked(self):
+    def _all_notes_off_clicked(self) -> None:
         """Handle All Notes Off button click."""
         try:
             self._flash_all_off_button()
@@ -733,7 +693,7 @@ class ChordMonitorWindow(QMainWindow):
             pass
         self._perform_all_notes_off()
     
-    def _perform_all_notes_off(self):
+    def _perform_all_notes_off(self) -> None:
         """Send note_off for all MIDI notes (0-127) on the current channel."""
         try:
             # Send CC120: All Sound Off, CC123: All Notes Off
@@ -749,7 +709,7 @@ class ChordMonitorWindow(QMainWindow):
         except Exception:
             pass
     
-    def _flash_all_off_button(self, duration_ms: int = 150):
+    def _flash_all_off_button(self, duration_ms: int = 150) -> None:
         """Temporarily set All Notes Off button to blue to indicate action, then revert."""
         btn = getattr(self, 'all_off_btn', None)
         if not isinstance(btn, QPushButton):

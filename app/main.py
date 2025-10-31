@@ -27,7 +27,6 @@ from .pad_grid import PadGridWidget, create_pad_grid_layout
 from .faders import FadersWidget
 from .xy_fader import XYFaderWidget
 from .harmonic_table import HarmonicTableWidget
-from .chord_selector import ChordSelectorWidget
 from .chord_monitor_window import ChordMonitorWindow
 
 
@@ -110,54 +109,6 @@ class MainWindow(QMainWindow):
                     self.size_actions['harmonic'].setChecked(True)
                 if 'chord_selector' in self.size_actions:
                     self.size_actions['chord_selector'].setChecked(False)
-            except Exception:
-                pass
-            try:
-                self._update_faders_menu_enabled(); self._update_xy_menu_enabled()
-            except Exception:
-                pass
-            self._update_window_title()
-            self._resize_for_layout(None)
-            self.keyboard.adjustSize()
-            self.adjustSize()
-            QTimer.singleShot(0, lambda: (
-                self.keyboard.adjustSize(),
-                self._resize_for_layout(None),
-                self.adjustSize()
-            ))
-        except Exception:
-            pass
-
-    def set_chord_selector(self):
-        """Switch to the Chord Selector widget."""
-        try:
-            self.current_layout_type = 'chord_selector'
-            new_widget = ChordSelectorWidget(self.keyboard.midi, self.current_channel - 1)
-            try:
-                new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            self.setCentralWidget(new_widget)
-            try:
-                self.keyboard.deleteLater()
-            except Exception:
-                pass
-            self.keyboard = new_widget
-            # Update menu checks
-            try:
-                for k, act in getattr(self, 'size_actions', {}).items():
-                    if isinstance(k, int):
-                        act.setChecked(False)
-                if 'pad4x4' in self.size_actions:
-                    self.size_actions['pad4x4'].setChecked(False)
-                if 'faders' in self.size_actions:
-                    self.size_actions['faders'].setChecked(False)
-                if 'xy' in self.size_actions:
-                    self.size_actions['xy'].setChecked(False)
-                if 'harmonic' in self.size_actions:
-                    self.size_actions['harmonic'].setChecked(False)
-                if 'chord_selector' in self.size_actions:
-                    self.size_actions['chord_selector'].setChecked(True)
             except Exception:
                 pass
             try:
@@ -475,15 +426,6 @@ class MainWindow(QMainWindow):
         self.size_group.addAction(harm_act)
         kb_menu.addAction(harm_act)
         self.size_actions['harmonic'] = harm_act
-        kb_menu.addSeparator()
-        # Chord Selector option
-        chord_act = QAction("Chord Selector", self)
-        chord_act.setCheckable(True)
-        chord_act.setChecked(False)
-        chord_act.triggered.connect(lambda checked: self.set_chord_selector())
-        self.size_group.addAction(chord_act)
-        kb_menu.addAction(chord_act)
-        self.size_actions['chord_selector'] = chord_act
 
         # MIDI menu
         midi_menu = menubar.addMenu("&MIDI")
@@ -761,11 +703,7 @@ class MainWindow(QMainWindow):
         # Apply to current keyboard widget
         try:
             if hasattr(self, 'keyboard') and self.keyboard is not None:
-                # ChordSelectorWidget expects 0-based channel
-                if isinstance(self.keyboard, ChordSelectorWidget):
-                    self.keyboard.set_channel(ch - 1)
-                else:
-                    self.keyboard.set_channel(ch)
+                self.keyboard.set_channel(ch)
         except Exception:
             pass
         # Update menu checkmarks if the group exists
@@ -854,13 +792,6 @@ class MainWindow(QMainWindow):
             try:
                 if prev_xy is not None:
                     new_widget.set_values(prev_xy[0], prev_xy[1], emit=False)
-            except Exception:
-                pass
-        elif getattr(self, 'current_layout_type', 'piano') == 'chord_selector':
-            layout = None  # not used by ChordSelectorWidget
-            new_widget = ChordSelectorWidget(self.keyboard.midi, self.current_channel - 1)
-            try:
-                new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
             except Exception:
                 pass
         else:
@@ -1159,8 +1090,6 @@ class MainWindow(QMainWindow):
             try:
                 if isinstance(self.keyboard, FadersWidget):
                     title_part = 'Faders'
-                elif isinstance(self.keyboard, ChordSelectorWidget):
-                    title_part = 'Chord Selector'
             except Exception:
                 pass
             if not title_part:
