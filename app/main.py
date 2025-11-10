@@ -161,11 +161,11 @@ class MainWindow(QMainWindow):
             cby.setCurrentIndex(max(0, min(127, int(ccy))))
             form.addRow(QLabel("X CC"), cbx)
             form.addRow(QLabel("Y CC"), cby)
-            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)
+            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)  # type: ignore[attr-defined]
             buttons.accepted.connect(dlg.accept)
             buttons.rejected.connect(dlg.reject)
             form.addRow(buttons)
-            if dlg.exec() != QDialog.Accepted:
+            if dlg.exec() != QDialog.Accepted:  # type: ignore[attr-defined]
                 return
             try:
                 self.keyboard.set_cc_numbers(int(cbx.currentData()), int(cby.currentData()))  # type: ignore[attr-defined]
@@ -226,13 +226,13 @@ class MainWindow(QMainWindow):
         visual_hold.setChecked(bool(self.menu_actions.get('visual_hold_checked', False)))
         def _toggle_visual_hold(checked: bool):
             try:
-                self.keyboard.visual_hold_on_sustain = checked
+                self.keyboard.visual_hold_on_sustain = checked  # type: ignore[attr-defined]
                 # Persist the checked state
                 self.menu_actions['visual_hold_checked'] = checked
                 # Re-sync visuals when toggled, without touching notes
                 try:
                     st = self.keyboard.style()
-                    for btn in self.keyboard.key_buttons.values():
+                    for btn in self.keyboard.key_buttons.values():  # type: ignore[attr-defined]
                         st.unpolish(btn)
                         st.polish(btn)
                         btn.update()
@@ -272,14 +272,17 @@ class MainWindow(QMainWindow):
             self._apply_show_mod_wheel(show_mod.isChecked())
             self._apply_show_pitch_wheel(show_pitch.isChecked())
             # Apply visual hold default (unchecked) or previous
-            self.keyboard.visual_hold_on_sustain = visual_hold.isChecked()
+            try:
+                self.keyboard.visual_hold_on_sustain = visual_hold.isChecked()  # type: ignore[attr-defined]
+            except Exception:
+                pass
             # Inline chord display is always on by default (keyboard.chord_monitor = True)
             # Don't open the chord monitor window automatically
             # User can open it via View > Chord Monitor menu if desired
             # Ensure styles reflect any change
             try:
                 st = self.keyboard.style()
-                for btn in self.keyboard.key_buttons.values():
+                for btn in self.keyboard.key_buttons.values():  # type: ignore[attr-defined]
                     st.unpolish(btn)
                     st.polish(btn)
                     btn.update()
@@ -372,9 +375,9 @@ class MainWindow(QMainWindow):
             self.menu_actions['zoom_group'] = self.zoom_group
             self.menu_actions['zoom_scale'] = self.current_scale
             try:
-                QShortcut(QKeySequence("Ctrl++"), self, activated=self._zoom_in_step)
-                QShortcut(QKeySequence("Ctrl+="), self, activated=self._zoom_in_step)
-                QShortcut(QKeySequence("Ctrl+-"), self, activated=self._zoom_out_step)
+                QShortcut(QKeySequence("Ctrl++"), self, activated=self._zoom_in_step)  # type: ignore[arg-type]
+                QShortcut(QKeySequence("Ctrl+="), self, activated=self._zoom_in_step)  # type: ignore[arg-type]
+                QShortcut(QKeySequence("Ctrl+-"), self, activated=self._zoom_out_step)  # type: ignore[arg-type]
             except Exception:
                 pass
         except Exception:
@@ -454,7 +457,7 @@ class MainWindow(QMainWindow):
         unlimited_act.setChecked(prev_sel == 'Unlimited')
         def _select_unlimited():
             try:
-                self.keyboard.set_polyphony_enabled(False)
+                self.keyboard.set_polyphony_enabled(False)  # type: ignore[attr-defined]
             except Exception:
                 pass
             self.menu_actions['voices_selected'] = 'Unlimited'
@@ -463,8 +466,8 @@ class MainWindow(QMainWindow):
         voices_menu.addAction(unlimited_act)
         def _select_limited(n: int):
             try:
-                self.keyboard.set_polyphony_enabled(True)
-                self.keyboard.set_polyphony_max(n)
+                self.keyboard.set_polyphony_enabled(True)  # type: ignore[attr-defined]
+                self.keyboard.set_polyphony_max(n)  # type: ignore[attr-defined]
             except Exception:
                 pass
             self.menu_actions['voices_selected'] = str(n)
@@ -554,7 +557,7 @@ class MainWindow(QMainWindow):
                     if sel == 'Unlimited':
                         self.keyboard.set_polyphony_enabled(False)
                     else:
-                        self.keyboard.set_polyphony_enabled(True)
+                        self.keyboard.set_polyphony_enabled(True)  # type: ignore[attr-defined]
                         try:
                             self.keyboard.set_polyphony_max(int(sel))
                         except Exception:
@@ -596,7 +599,7 @@ class MainWindow(QMainWindow):
         ))
 
         # Update checkmarks in menu
-        kb_menu: QMenu = self.menuBar().findChild(QMenu, None)
+        kb_menu: QMenu = self.menuBar().findChild(QMenu, None)  # type: ignore[arg-type,assignment]
         # Not strictly necessary to update checks programmatically; actions will visually toggle by selection.
 
     def _open_chord_monitor_window(self):
@@ -665,7 +668,7 @@ class MainWindow(QMainWindow):
         dlg.setStyleSheet(
             "QPushButton { border: 2px solid #3399ff; border-radius: 4px; padding: 4px 10px; }"
         )
-        if dlg.exec() != QMessageBox.Accepted:
+        if dlg.exec() != QMessageBox.Accepted:  # type: ignore[attr-defined]
             return
         port = dlg.textValue()
         if not port:
@@ -838,7 +841,7 @@ class MainWindow(QMainWindow):
         try:
             self._apply_show_mod_wheel(bool(self.menu_actions.get('show_mod', False)))
             self._apply_show_pitch_wheel(bool(self.menu_actions.get('show_pitch', False)))
-            self.keyboard.visual_hold_on_sustain = bool(self.menu_actions.get('visual_hold_checked', False))
+            self.keyboard.visual_hold_on_sustain = bool(self.menu_actions.get('visual_hold_checked', False))  # type: ignore[attr-defined]
             # Restore chord monitor state
             try:
                 chord_monitor_action = self.menu_actions.get('chord_monitor')
@@ -847,7 +850,7 @@ class MainWindow(QMainWindow):
                 else:
                     chord_monitor_checked = bool(self.menu_actions.get('chord_monitor', False))
                 if hasattr(self.keyboard, 'set_chord_monitor'):
-                    self.keyboard.set_chord_monitor(chord_monitor_checked)
+                    self.keyboard.set_chord_monitor(chord_monitor_checked)  # type: ignore[attr-defined]
             except Exception:
                 pass
         except Exception:
@@ -856,13 +859,13 @@ class MainWindow(QMainWindow):
         try:
             sel = self.menu_actions.get('voices_selected', 'Unlimited')
             if sel == 'Unlimited':
-                self.keyboard.set_polyphony_enabled(False)
+                self.keyboard.set_polyphony_enabled(False)  # type: ignore[attr-defined]
             else:
-                self.keyboard.set_polyphony_enabled(True)
+                self.keyboard.set_polyphony_enabled(True)  # type: ignore[attr-defined]
                 try:
-                    self.keyboard.set_polyphony_max(int(sel))
+                    self.keyboard.set_polyphony_max(int(sel))  # type: ignore[attr-defined]
                 except Exception:
-                    self.keyboard.set_polyphony_max(8)
+                    self.keyboard.set_polyphony_max(8)  # type: ignore[attr-defined]
         except Exception:
             pass
         # Persist zoom selection
@@ -911,7 +914,7 @@ class MainWindow(QMainWindow):
             content_width = None
             if hasattr(self, 'keyboard') and hasattr(self.keyboard, 'piano_container'):
                 try:
-                    w_piano = int(self.keyboard.piano_container.width())
+                    w_piano = int(self.keyboard.piano_container.width())  # type: ignore[attr-defined]
                 except Exception:
                     w_piano = None
                 # Include left panel (wheels) width when visible
@@ -958,7 +961,7 @@ class MainWindow(QMainWindow):
         # Update child geometry (piano-specific safe guard)
         try:
             if hasattr(self.keyboard, 'piano_container'):
-                self.keyboard.piano_container.updateGeometry()
+                self.keyboard.piano_container.updateGeometry()  # type: ignore[attr-defined]
             self.keyboard.updateGeometry()
         except Exception:
             pass
@@ -1082,7 +1085,7 @@ class MainWindow(QMainWindow):
         )
         msg = QMessageBox(self)
         msg.setWindowTitle("About Octavium")
-        msg.setTextFormat(Qt.RichText)
+        msg.setTextFormat(Qt.TextFormat.RichText)  
         msg.setText(text)
         # Blue bounding box around the OK button
         msg.setStyleSheet(
@@ -1287,11 +1290,11 @@ class MainWindow(QMainWindow):
                 cb.setCurrentIndex(max(0, min(127, sel)))
                 combos.append(cb)
                 form.addRow(QLabel(f"Fader {i+1}"), cb)
-            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)
+            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)  # type: ignore[attr-defined]
             buttons.accepted.connect(dlg.accept)
             buttons.rejected.connect(dlg.reject)
             form.addRow(buttons)
-            if dlg.exec() != QDialog.Accepted:
+            if dlg.exec() != QDialog.Accepted:  # type: ignore[attr-defined]
                 return
             cleaned = [int(cb.currentData()) for cb in combos]
             try:
