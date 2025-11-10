@@ -152,20 +152,15 @@ class MidiOut:
                     self.port.close()
                 except Exception:
                     pass
-        finally:
-            # If we explicitly used pygame backend, shut it down after closing
-            try:
-                if self.use_pygame:
-                    pygame.midi.quit()
-            except Exception:
-                pass
+        except Exception:
+            pass
+        # Note: Don't call pygame.midi.quit() here - let it be managed globally
+        # to avoid "not initialised" errors during interpreter shutdown
 
     def __del__(self):
         # Be resilient during interpreter shutdown
-        try:
-            self.close()
-        except Exception:
-            pass
+        # Don't try to close during shutdown - just let the port be garbage collected
+        pass
 
 def list_output_names() -> list[str]:
     """Return a list of available MIDI output port names.
