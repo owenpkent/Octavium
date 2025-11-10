@@ -8,17 +8,20 @@ An accessibility-first, mouse‑driven virtual MIDI keyboard for making music wi
 
 ## Features
 
-- **Accessibility & mouse-first**: Optimized for mouse input; every playing action works via click or click‑and‑drag.
-- **Virtual keyboard focus**: On‑screen piano with clear press/held states and strong visual feedback.
+- **Launcher Window**: Central hub to open multiple keyboards and windows simultaneously
+- **Multiple Keyboards**: 25-key, 49-key, 61-key pianos, and Harmonic Table
+- **Standalone Windows**: Chord Monitor, Pad Grid, Faders, and XY Fader can be opened independently
+- **Accessibility & mouse-first**: Optimized for mouse input; every playing action works via click or click‑and‑drag
+- **Virtual keyboard focus**: On‑screen piano with clear press/held states and strong visual feedback
 - **Sustain and Latch**:
-  - Sustain keeps notes sounding; visuals clear on click release so you always see what you touched.
-  - Latch toggles notes on press; pressing again releases. When changing octaves, visuals shift position while the sounding notes do not change.
-- **Velocity control**: Slider with linear/soft/hard response curves.
-- **Scale quantization**: Optionally snap to scales (chromatic by default) to avoid wrong notes.
-- **Octave controls**: Buttons and shortcuts for quick visual range shifts.
-- **Polyphony options**: Limit voices or run unlimited.
-- **MIDI routing**: Choose output port and channel.
-- **Code-defined layouts**: Built-in 61‑key piano layout.
+  - Sustain keeps notes sounding; visuals clear on click release so you always see what you touched
+  - Latch toggles notes on press; pressing again releases. When changing octaves, visuals shift position while the sounding notes do not change
+- **Velocity control**: Slider with linear/soft/hard response curves
+- **Scale quantization**: Optionally snap to scales (chromatic by default) to avoid wrong notes
+- **Octave controls**: Buttons and shortcuts for quick visual range shifts
+- **Polyphony options**: Limit voices or run unlimited
+- **MIDI routing**: Choose output port and channel
+- **Chord Monitor**: Hold-to-play chord cards with humanize controls (velocity and drift randomization)
 
 ## Quick Start
 
@@ -62,6 +65,24 @@ An accessibility-first, mouse‑driven virtual MIDI keyboard for making music wi
    ```
 
 ## Usage
+
+### Launcher Window
+
+When you run Octavium, a launcher window appears with options to open:
+
+**Keyboards:**
+- 25-Key Piano
+- 49-Key Piano
+- 61-Key Piano
+- Harmonic Table
+
+**Windows:**
+- Chord Monitor - Hold-to-play chord cards with humanize controls
+- Pad Grid - 4x4 drum pad grid
+- Faders - 8-channel MIDI CC faders
+- XY Fader - 2D XY pad for expressive control
+
+You can open multiple keyboards and windows simultaneously. The launcher stays open for easy access.
 
 ### Mouse interactions
 
