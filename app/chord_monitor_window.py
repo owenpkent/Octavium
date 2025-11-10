@@ -935,15 +935,15 @@ class ChordMonitorWindow(QMainWindow):
         """Handle window close event."""
         # Notify parent to update menu state
         try:
-            if hasattr(self, '_parent_main') and self._parent_main:
+            if hasattr(self, '_parent_main') and self._parent_main is not None:
                 parent = self._parent_main
                 if hasattr(parent, 'menu_actions') and 'chord_monitor' in parent.menu_actions:
                     parent.menu_actions['chord_monitor'].setChecked(False)
-                    if hasattr(parent, 'keyboard') and hasattr(parent.keyboard, 'set_chord_monitor'):
-                        parent.keyboard.set_chord_monitor(False)
+                    # Don't disable inline chord display - it should always be on
+                    # if hasattr(parent, 'keyboard') and hasattr(parent.keyboard, 'set_chord_monitor'):
+                    #     parent.keyboard.set_chord_monitor(False)
                 # Clear reference
                 parent.chord_monitor_window = None
         except Exception:
             pass
         super().closeEvent(event)
-

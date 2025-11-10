@@ -18,7 +18,7 @@ class KeyboardChordCard(QFrame):
         self.actual_notes = actual_notes or []  # Store actual MIDI notes for exact replay
         # Make card wider to accommodate longer chord names on one line
         self.setFixedSize(140, 30)
-        self.setFrameStyle(QFrame.Box)
+        self.setFrameShape(QFrame.Box)  # type: ignore[attr-defined]
         self.setStyleSheet("""
             KeyboardChordCard {
                 background-color: #2b2f36;
@@ -41,17 +41,17 @@ class KeyboardChordCard(QFrame):
         full_text = f"{root_text} {chord_type}"
         chord_label = QLabel(full_text)
         chord_label.setStyleSheet("font-size: 11px; color: #fff; font-weight: bold;")
-        chord_label.setAlignment(Qt.AlignCenter)
+        chord_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
         chord_label.setWordWrap(False)  # No word wrap - keep on one line
         layout.addWidget(chord_label)
         
-        self.setCursor(Qt.OpenHandCursor)
+        self.setCursor(Qt.OpenHandCursor)  # type: ignore[attr-defined]
 
     def mousePressEvent(self, event):
         """Start drag operation."""
         if event.button() == Qt.LeftButton:
             self.drag_start_position = event.pos()
-            self.setCursor(Qt.ClosedHandCursor)
+            self.setCursor(Qt.ClosedHandCursor)  # type: ignore[attr-defined]
 
     def mouseMoveEvent(self, event):
         """Handle drag movement."""
@@ -317,7 +317,7 @@ class KeyboardWidget(QWidget):
         self.octave_offset = 0
         self.sustain = False
         self.latch = False
-        self.chord_monitor = False  # Enable chord detection and display
+        self.chord_monitor = True  # Enable chord detection and display by default
         self.visual_hold_on_sustain = False  # whether sustained notes keep visual down state
         self.vel_curve = "linear"
         self.active_notes: set[tuple[int,int]] = set()
@@ -350,13 +350,29 @@ class KeyboardWidget(QWidget):
 
         self._show_header = show_header
         self._compact_controls = compact_controls
-        header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 0)
+        
+        # Use a vertical layout for header with two rows
+        header_container = QVBoxLayout()
+        header_container.setContentsMargins(0, 0, 0, 0)
+        header_container.setSpacing(2)
+        
+        # First row: Octave controls, chord card, and action buttons
+        header_row1 = QHBoxLayout()
+        header_row1.setContentsMargins(0, 0, 0, 0)
         try:
             s = max(0.5, float(getattr(self, 'ui_scale', 1.0)))
-            header.setSpacing(max(1, int(2 * s)))
+            header_row1.setSpacing(max(1, int(2 * s)))
         except Exception:
-            header.setSpacing(1)
+            header_row1.setSpacing(1)
+        
+        # Second row: Velocity controls
+        header_row2 = QHBoxLayout()
+        header_row2.setContentsMargins(0, 0, 0, 0)
+        try:
+            s = max(0.5, float(getattr(self, 'ui_scale', 1.0)))
+            header_row2.setSpacing(max(1, int(2 * s)))
+        except Exception:
+            header_row2.setSpacing(1)
         self.oct_label = QLabel("Octave")
         # Octave +/- buttons
         self.oct_minus_btn = QPushButton("-")
@@ -592,9 +608,10 @@ class KeyboardWidget(QWidget):
             self.oct_plus_btn.setFixedWidth(int(24 * s))
         except Exception:
             pass
-        header.addWidget(self.oct_minus_btn)
-        header.addWidget(self.oct_label)
-        header.addWidget(self.oct_plus_btn)
+        # Row 1: Octave controls, chord card, and action buttons
+        header_row1.addWidget(self.oct_minus_btn)
+        header_row1.addWidget(self.oct_label)
+        header_row1.addWidget(self.oct_plus_btn)
         # Chord card (shown when chord monitor is on and chord is detected)
         self.current_chord_card: Optional[QFrame] = None
         self.chord_card_container = QWidget()
@@ -604,23 +621,32 @@ class KeyboardWidget(QWidget):
         # Initialize with empty layout - add margins to give border space
         empty_layout = QVBoxLayout(self.chord_card_container)
         empty_layout.setContentsMargins(0, 2, 0, 4)
-        header.addWidget(self.chord_card_container)
-        header.addWidget(self.vel_label)
-        header.addWidget(self.vel_random_chk)
-        header.addWidget(self.vel_slider)
-        header.addWidget(self.vel_range)
-        header.addWidget(self.sustain_btn)
-        header.addWidget(self.latch_btn)
-        header.addWidget(self.all_off_btn)
-        header.addStretch()
+        header_row1.addWidget(self.chord_card_container)
+        header_row1.addWidget(self.sustain_btn)
+        header_row1.addWidget(self.latch_btn)
+        header_row1.addWidget(self.all_off_btn)
+        header_row1.addStretch()
+        
+        # Row 2: Velocity controls
+        header_row2.addWidget(self.vel_label)
+        header_row2.addWidget(self.vel_random_chk)
+        header_row2.addWidget(self.vel_slider)
+        header_row2.addWidget(self.vel_range)
+        header_row2.addStretch()
+        
+        # Add both rows to the header container
+        header_container.addLayout(header_row1)
+        header_container.addLayout(header_row2)
+        
         # Keep original per-button styles (defined when buttons are created)
         if self._show_header:
-            root.addLayout(header)
+            root.addLayout(header_container)
         elif self._compact_controls:
             # Add a compact controls bar (centered) with Sustain + All Notes Off
             controls_widget = QWidget()
             try:
-                controls_widget.setFixedHeight(26)
+                # Increase height to accommodate chord card (36px) with some padding
+                controls_widget.setFixedHeight(42)
                 controls_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             except Exception:
                 pass
@@ -680,7 +706,7 @@ class KeyboardWidget(QWidget):
         lp_layout.setContentsMargins(6, 2, 6, 2)
         lp_layout.setSpacing(12)
         # Pitch wheel (center detent)
-        self.pitch_slider = DragReferenceSlider(Qt.Vertical)
+        self.pitch_slider = DragReferenceSlider(Qt.Vertical)  # type: ignore[attr-defined]
         self.pitch_slider.setMinimum(-8192)
         self.pitch_slider.setMaximum(8191)
         self.pitch_slider.setValue(0)
@@ -1067,7 +1093,7 @@ class KeyboardWidget(QWidget):
         keys_h = int(134 * getattr(self, 'ui_scale', 1.0))
         # Add vertical extras for header/controls when present
         if getattr(self, "_show_header", True):
-            header_h = 24  # approximate header row height
+            header_h = 48  # two-row header (24px per row)
             gap = 8  # spacer added between header and keys
             return QSize(width, keys_h + header_h + gap)
         elif getattr(self, "_compact_controls", True):
@@ -1400,6 +1426,7 @@ class KeyboardWidget(QWidget):
                         ch = self.midi_channel
                         if not getattr(self, 'latch', False):
                             self.midi.note_on(current_note, vel, ch)
+                            self.active_notes.add((current_note, ch))
                         # Update current button visual and references
                         self._apply_btn_visual(widget_under, True, False)
                         self.last_drag_button = widget_under
@@ -1407,6 +1434,9 @@ class KeyboardWidget(QWidget):
                         self.last_drag_key = None  # no heavy KeyDef allocation
                         # Ensure no other keys remain visually active
                         self._clear_other_actives(self.last_drag_button)
+                        # Update chord display during drag
+                        if getattr(self, 'chord_monitor', False):
+                            self._update_chord_card()
                 else:
                     # Not over any key: release previous note and clear visual, keep dragging
                     if self._last_drag_note_base is not None and not self.sustain and not getattr(self, 'latch', False):

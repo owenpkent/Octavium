@@ -61,7 +61,9 @@ class MainWindow(QMainWindow):
         # Build initial widget
         self.current_layout_type = 'piano'
         layout = create_piano_by_size(size)
-        self.keyboard = KeyboardWidget(layout, midi, title=f"Piano {size}-Key -> {port_hint}", show_header=False, scale=self.current_scale)
+        # Show header only on 25-key keyboard
+        show_header = (size == 25)
+        self.keyboard = KeyboardWidget(layout, midi, title=f"Piano {size}-Key -> {port_hint}", show_header=show_header, scale=self.current_scale)
         self.keyboard.port_name = port_hint
         self.keyboard.set_channel(self.current_channel)
         self.setCentralWidget(self.keyboard)
@@ -240,14 +242,14 @@ class MainWindow(QMainWindow):
                 pass
         visual_hold.triggered.connect(_toggle_visual_hold)
         view_menu.addAction(visual_hold)
-        # Chord Monitor option
+        # Chord Monitor option (window only, inline display is always on)
         chord_monitor = QAction("Chord Monitor", self)
         chord_monitor.setCheckable(True)
         chord_monitor.setChecked(bool(self.menu_actions.get('chord_monitor', False)))
         def _toggle_chord_monitor(checked: bool):
             try:
-                if hasattr(self, 'keyboard') and hasattr(self.keyboard, 'set_chord_monitor'):
-                    self.keyboard.set_chord_monitor(checked)
+                # The inline chord display is always on (keyboard.chord_monitor = True)
+                # This menu only controls the separate chord monitor window
                 self.menu_actions['chord_monitor'] = checked
                 # Open or close chord monitor window
                 if checked:
@@ -271,15 +273,9 @@ class MainWindow(QMainWindow):
             self._apply_show_pitch_wheel(show_pitch.isChecked())
             # Apply visual hold default (unchecked) or previous
             self.keyboard.visual_hold_on_sustain = visual_hold.isChecked()
-            # Apply chord monitor state
-            try:
-                if hasattr(self.keyboard, 'set_chord_monitor'):
-                    self.keyboard.set_chord_monitor(chord_monitor.isChecked())
-                # Open window if previously checked
-                if chord_monitor.isChecked():
-                    self._open_chord_monitor_window()
-            except Exception:
-                pass
+            # Inline chord display is always on by default (keyboard.chord_monitor = True)
+            # Don't open the chord monitor window automatically
+            # User can open it via View > Chord Monitor menu if desired
             # Ensure styles reflect any change
             try:
                 st = self.keyboard.style()
@@ -531,7 +527,9 @@ class MainWindow(QMainWindow):
         self.current_layout_type = 'piano'
         # Rebuild keyboard with same MIDI out
         layout = create_piano_by_size(size)
-        new_keyboard = KeyboardWidget(layout, self.keyboard.midi, show_header=False, scale=getattr(self.keyboard, 'ui_scale', 1.0))
+        # Show header only on 25-key keyboard
+        show_header = (size == 25)
+        new_keyboard = KeyboardWidget(layout, self.keyboard.midi, show_header=show_header, scale=getattr(self.keyboard, 'ui_scale', 1.0))
         new_keyboard.port_name = self.keyboard.port_name
         new_keyboard.update_window_title()
         self.setCentralWidget(new_keyboard)
@@ -808,7 +806,9 @@ class MainWindow(QMainWindow):
                 pass
         else:
             layout = create_piano_by_size(self.current_size)
-            new_widget = KeyboardWidget(layout, self.keyboard.midi, show_header=False, scale=scale)
+            # Show header only on 25-key keyboard
+            show_header = (self.current_size == 25)
+            new_widget = KeyboardWidget(layout, self.keyboard.midi, show_header=show_header, scale=scale)
             try:
                 new_widget.port_name = self.keyboard.port_name  # type: ignore[attr-defined]
             except Exception:

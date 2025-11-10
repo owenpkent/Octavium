@@ -22,12 +22,12 @@ class MidiOut:
         try:
             name = None
             if port_name_contains:
-                for n in mido.get_output_names():
+                for n in mido.get_output_names():  # type: ignore[attr-defined]
                     if port_name_contains.lower() in n.lower():
                         name = n
                         break
             if name is None:
-                outs = mido.get_output_names()
+                outs = mido.get_output_names()  # type: ignore[attr-defined]
                 if not outs:
                     raise RuntimeError("No MIDI outputs found with mido")
                 name = outs[0]
@@ -37,7 +37,7 @@ class MidiOut:
                     pygame.midi.init()
             except Exception:
                 pass
-            self.port = mido.open_output(name)
+            self.port = mido.open_output(name)  # type: ignore[attr-defined]
             print(f"Using mido backend with port: {name}")
         except Exception as e:
             # Switch to pygame backend if mido could not initialize
@@ -80,7 +80,7 @@ class MidiOut:
                 status = 0x90 + channel  # note on + channel
                 self.port.write_short(status, note, velocity)
             else:
-                self.port.send(mido.Message("note_on", note=note, velocity=velocity, channel=channel))
+                self.port.send(mido.Message("note_on", note=note, velocity=velocity, channel=channel))  # type: ignore[attr-defined]
         except (ValueError, AttributeError, RuntimeError):
             # Port might be closed or unavailable - silently ignore
             pass
@@ -95,7 +95,7 @@ class MidiOut:
                 status = 0x80 + channel  # note off + channel
                 self.port.write_short(status, note, 0)
             else:
-                self.port.send(mido.Message("note_off", note=note, velocity=0, channel=channel))
+                self.port.send(mido.Message("note_off", note=note, velocity=0, channel=channel))  # type: ignore[attr-defined]
         except (ValueError, AttributeError, RuntimeError):
             # Port might be closed or unavailable - silently ignore
             pass
@@ -111,7 +111,7 @@ class MidiOut:
                 status = 0xB0 + channel  # control change + channel
                 self.port.write_short(status, cc, value)
             else:
-                self.port.send(mido.Message("control_change", control=cc, value=value, channel=channel))
+                self.port.send(mido.Message("control_change", control=cc, value=value, channel=channel))  # type: ignore[attr-defined]
         except (ValueError, AttributeError, RuntimeError):
             # Port might be closed or unavailable - silently ignore
             pass
@@ -131,7 +131,7 @@ class MidiOut:
                 status = 0xE0 + channel
                 self.port.write_short(status, lsb, msb)
             else:
-                self.port.send(mido.Message("pitchwheel", pitch=v, channel=channel))
+                self.port.send(mido.Message("pitchwheel", pitch=v, channel=channel))  # type: ignore[attr-defined]
         except (ValueError, AttributeError, RuntimeError):
             # Port might be closed or unavailable - silently ignore
             pass
@@ -173,8 +173,7 @@ def list_output_names() -> list[str]:
     """
     names: list[str] = []
     try:
-        outs = mido.get_output_names()
-        names.extend(outs)
+        names = mido.get_output_names()  # type: ignore[attr-defined]
     except Exception:
         # Ignore
         pass

@@ -24,7 +24,7 @@ class LauncherWindow(QMainWindow):
         
         # Show available MIDI ports
         try:
-            ports = mido.get_output_names()
+            ports = mido.get_output_names()  # type: ignore[attr-defined]
             if ports:
                 print(f"Available MIDI ports: {', '.join(ports)}")
             else:
