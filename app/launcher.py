@@ -18,6 +18,14 @@ class LauncherWindow(QMainWindow):
         self.app = app
         self.opened_windows: List[Any] = []
         
+        # Create a shared MIDI output for all windows to avoid port conflicts
+        from .midi_io import MidiOut
+        try:
+            self.shared_midi = MidiOut()
+        except Exception as e:
+            print(f"Warning: Could not initialize MIDI output: {e}")
+            self.shared_midi = None
+        
         self.setWindowTitle("Octavium Launcher")
         self.setMinimumSize(600, 500)
         
@@ -161,82 +169,98 @@ class LauncherWindow(QMainWindow):
     def _launch_piano_25(self):
         """Launch 25-key piano window."""
         from .main import MainWindow
-        window = MainWindow(self.app, size=25)
-        window.show()
-        self.opened_windows.append(window)
+        if self.shared_midi:
+            window = MainWindow(self.app, size=25, midi=self.shared_midi)
+            window.show()
+            self.opened_windows.append(window)
+        else:
+            print("Error: No MIDI output available")
     
     def _launch_piano_49(self):
         """Launch 49-key piano window."""
         from .main import MainWindow
-        window = MainWindow(self.app, size=49)
-        window.show()
-        self.opened_windows.append(window)
+        if self.shared_midi:
+            window = MainWindow(self.app, size=49, midi=self.shared_midi)
+            window.show()
+            self.opened_windows.append(window)
+        else:
+            print("Error: No MIDI output available")
     
     def _launch_piano_61(self):
         """Launch 61-key piano window."""
         from .main import MainWindow
-        window = MainWindow(self.app, size=61)
-        window.show()
-        self.opened_windows.append(window)
+        if self.shared_midi:
+            window = MainWindow(self.app, size=61, midi=self.shared_midi)
+            window.show()
+            self.opened_windows.append(window)
+        else:
+            print("Error: No MIDI output available")
     
     def _launch_harmonic_table(self):
         """Launch harmonic table window."""
         from .main import MainWindow
-        window = MainWindow(self.app, size=61)
-        # Switch to harmonic table view
-        window.set_harmonic_table()
-        window.show()
-        self.opened_windows.append(window)
+        if self.shared_midi:
+            window = MainWindow(self.app, size=61, midi=self.shared_midi)
+            # Switch to harmonic table view
+            window.set_harmonic_table()
+            window.show()
+            self.opened_windows.append(window)
+        else:
+            print("Error: No MIDI output available")
     
     def _launch_chord_monitor(self):
         """Launch chord monitor window."""
         from .chord_monitor_window import ChordMonitorWindow
-        from .midi_io import MidiOut
-        import traceback
-        try:
-            midi_out = MidiOut()
-            window = ChordMonitorWindow(midi_out, 0, self)
-            window.show()
-            self.opened_windows.append(window)
-        except Exception as e:
-            print(f"Error launching Chord Monitor: {e}")
-            traceback.print_exc()
+        if self.shared_midi:
+            try:
+                window = ChordMonitorWindow(self.shared_midi, 0, self)
+                window.show()
+                self.opened_windows.append(window)
+            except Exception as e:
+                print(f"Error launching Chord Monitor: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print("Error: No MIDI output available")
     
     def _launch_pad_grid(self):
         """Launch pad grid window."""
         from .standalone_windows import PadGridWindow
-        from .midi_io import MidiOut
-        try:
-            midi_out = MidiOut()
-            window = PadGridWindow(midi_out, 0, self)
-            window.show()
-            self.opened_windows.append(window)
-        except Exception as e:
-            print(f"Error launching Pad Grid: {e}")
+        if self.shared_midi:
+            try:
+                window = PadGridWindow(self.shared_midi, 0, self)
+                window.show()
+                self.opened_windows.append(window)
+            except Exception as e:
+                print(f"Error launching Pad Grid: {e}")
+        else:
+            print("Error: No MIDI output available")
     
     def _launch_faders(self):
         """Launch faders window."""
         from .standalone_windows import FadersWindow
-        from .midi_io import MidiOut
-        try:
-            midi_out = MidiOut()
-            window = FadersWindow(midi_out, 0, self)
-            window.show()
-            self.opened_windows.append(window)
-        except Exception as e:
-            print(f"Error launching Faders: {e}")
+        if self.shared_midi:
+            try:
+                window = FadersWindow(self.shared_midi, 0, self)
+                window.show()
+                self.opened_windows.append(window)
+            except Exception as e:
+                print(f"Error launching Faders: {e}")
+        else:
+            print("Error: No MIDI output available")
     
     def _launch_xy_fader(self):
         """Launch XY fader window."""
         from .standalone_windows import XYFaderWindow
-        from .midi_io import MidiOut
-        try:
-            midi_out = MidiOut()
-            window = XYFaderWindow(midi_out, 0, self)
-            window.show()
-            self.opened_windows.append(window)
-        except Exception as e:
-            print(f"Error launching XY Fader: {e}")
+        if self.shared_midi:
+            try:
+                window = XYFaderWindow(self.shared_midi, 0, self)
+                window.show()
+                self.opened_windows.append(window)
+            except Exception as e:
+                print(f"Error launching XY Fader: {e}")
+        else:
+            print("Error: No MIDI output available")
 
 
 def run():
