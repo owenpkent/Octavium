@@ -20,10 +20,25 @@ class LauncherWindow(QMainWindow):
         
         # Create a shared MIDI output for all windows to avoid port conflicts
         from .midi_io import MidiOut
+        import mido
+        
+        # Show available MIDI ports
         try:
-            self.shared_midi = MidiOut()
+            ports = mido.get_output_names()
+            if ports:
+                print(f"Available MIDI ports: {', '.join(ports)}")
+            else:
+                print("No MIDI ports found")
         except Exception as e:
-            print(f"Warning: Could not initialize MIDI output: {e}")
+            print(f"Could not list MIDI ports: {e}")
+        
+        try:
+            # Prefer loopMIDI Port 1 if available
+            self.shared_midi = MidiOut(port_name_contains="loopMIDI Port 1")
+            backend = "pygame" if self.shared_midi.use_pygame else "mido"
+            print(f"✓ Launcher initialized with {backend} MIDI backend")
+        except Exception as e:
+            print(f"✗ Warning: Could not initialize MIDI output: {e}")
             self.shared_midi = None
         
         self.setWindowTitle("Octavium Launcher")
