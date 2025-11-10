@@ -627,7 +627,7 @@ class MainWindow(QMainWindow):
                 self.chord_monitor_window = ChordMonitorWindow(
                     self.keyboard.midi, 
                     self.current_channel - 1,
-                    self
+                    None
                 )
                 # Store reference to parent for menu updates
                 self.chord_monitor_window._parent_main = self  # type: ignore[attr-defined]

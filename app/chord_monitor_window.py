@@ -97,61 +97,67 @@ class ChordMonitorReplayArea(QWidget):
                     event.accept()  # type: ignore
                     return True
             elif event.type() == QEvent.Type.Drop:
-                if event.mimeData().hasText():  # type: ignore
-                    # obj is the button being dropped on
-                    button = obj  # type: ignore
+                # Check if drop was handled by a child widget (card or button)
+                # If so, don't process here
+                drop_pos = event.pos()  # type: ignore
+                # Convert button local pos to widget pos
+                widget_pos = obj.mapTo(self, drop_pos)  # type: ignore
+                for slot_idx, card in enumerate(self.grid_positions):
+                    if card is not None and card.isVisible():
+                        # Get card's geometry
+                        card_geom = card.geometry()
+                        if card_geom.contains(widget_pos):  
+                            # Let the card handle its own drop
+                            return super().eventFilter(obj, event)  # type: ignore[arg-type]
+                
+                # If we get here, drop is in empty space - find slot by position
+                button = obj  # type: ignore
+                # Calculate which slot this button occupies
+                # Find the button's index in placeholder_buttons
+                try:
+                    button_index = self.placeholder_buttons.index(button)
+                except ValueError:
+                    # Button not found, use position calculation
+                    drop_pos = event.pos()  # type: ignore
+                    # Convert button local pos to widget pos
+                    widget_pos = button.mapTo(self, drop_pos)  # type: ignore
+                    button_index = self._find_slot_at_position(widget_pos)
+                
+                if button_index is not None:
+                    # Get the chord data
+                    data = event.mimeData().text()  # type: ignore
                     
-                    # Calculate which slot this button occupies
-                    # Find the button's index in placeholder_buttons
-                    try:
-                        button_index = self.placeholder_buttons.index(button)
-                    except ValueError:
-                        # Button not found, use position calculation
-                        drop_pos = event.pos()  # type: ignore
-                        # Convert button local pos to widget pos
-                        widget_pos = button.mapTo(self, drop_pos)  # type: ignore
-                        button_index = self._find_slot_at_position(widget_pos)
+                    # Skip rearrange operations - let card handle them
+                    if data.startswith("rearrange:"):
+                        return False
                     
-                    if button_index is not None:
-                        # Get the chord data
-                        data = event.mimeData().text()  # type: ignore
-                        parts = data.split(":")
-                        root_note_str = parts[0]
-                        chord_type = parts[1]
-                        root_note = int(root_note_str)
-                        
-                        # Parse actual notes if present
-                        actual_notes = None
-                        if len(parts) >= 3 and parts[2]:
-                            try:
-                                actual_notes = [int(n) for n in parts[2].split(",") if n.strip()]
-                            except (ValueError, AttributeError):
-                                actual_notes = None
-                        
-                        # Replace any existing card at this slot
-                        old_card = self.grid_positions[button_index]
-                        if old_card is not None:
-                            old_card.deleteLater()
-                            self.cards.remove(old_card)
-                            self.grid_positions[button_index] = None
-                        
-                        # Remove placeholder button
-                        if isinstance(button, QPushButton):
-                            button.hide()
-                            button.setParent(None)  # type: ignore[arg-type]
-                            button.deleteLater()
-                        self.placeholder_buttons[button_index] = None
-                        
-                        # Create new card at this slot
-                        self._create_card_at_slot(button_index, root_note, chord_type, actual_notes)
-                        event.setDropAction(Qt.DropAction.CopyAction)  # type: ignore
-                        event.accept()  # type: ignore
+                    parts = data.split(":")
+                    root_note_str = parts[0]
+                    chord_type = parts[1]
+                    root_note = int(root_note_str)
+                    
+                    # Parse actual notes if present
+                    actual_notes = None
+                    if len(parts) >= 3 and parts[2]:
+                        try:
+                            actual_notes = [int(n) for n in parts[2].split(",") if n.strip()]
+                        except (ValueError, AttributeError):
+                            actual_notes = None
+                    
+                    # Check if the drop is a rearrange operation
+                    if self.grid_positions[button_index] is not None:
                         return True
                     
-                    # Fallback: handle as regular button drop
-                    if isinstance(button, QPushButton):
-                        self._handle_drop_on_button(button, event)  # type: ignore
+                    # Create new card at this slot
+                    self._create_card_at_slot(button_index, root_note, chord_type, actual_notes)
+                    event.setDropAction(Qt.DropAction.CopyAction)  # type: ignore
+                    event.accept()  # type: ignore
                     return True
+                
+                # Fallback: handle as regular button drop
+                if isinstance(button, QPushButton):
+                    self._handle_drop_on_button(button, event)  # type: ignore
+                return True
         return super().eventFilter(obj, event)  # type: ignore[arg-type]
     
     def _handle_drop_on_button(self, button: QPushButton, event):  # type: ignore
@@ -160,6 +166,11 @@ class ChordMonitorReplayArea(QWidget):
             return
         
         data = event.mimeData().text()  # type: ignore
+        
+        # Check if the drop is a rearrange operation
+        if data.startswith("rearrange:"):
+            return
+        
         try:
             parts = data.split(":")
             root_note_str = parts[0]
@@ -228,7 +239,7 @@ class ChordMonitorReplayArea(QWidget):
             if card is not None and card.isVisible():
                 # Get card's geometry
                 card_geom = card.geometry()
-                if card_geom.contains(self.mapFromGlobal(event.globalPos())):  # type: ignore
+                if card_geom.contains(drop_pos):  # type: ignore
                     # Let the card handle its own drop
                     return
         
@@ -236,7 +247,7 @@ class ChordMonitorReplayArea(QWidget):
         for slot_idx, button in enumerate(self.placeholder_buttons):
             if button is not None and button.isVisible():
                 button_geom = button.geometry()
-                if button_geom.contains(self.mapFromGlobal(event.globalPos())):  # type: ignore
+                if button_geom.contains(drop_pos):  # type: ignore
                     # Let the button's event filter handle it
                     return
         

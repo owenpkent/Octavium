@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QComboBox, QFrame, QScrollArea, QMenu, QSizePolicy, QSlider, QCheckBox
 )
-from PySide6.QtCore import Qt, QMimeData, QPoint, QTimer, QRectF
+from PySide6.QtCore import Qt, QMimeData, QPoint, QTimer, QRectF, QEvent
 from PySide6.QtGui import QDrag, QPainter, QColor, QFont
 from typing import List, Tuple, Optional, Callable, Iterable, Dict, Set, FrozenSet, TYPE_CHECKING, Any
 
@@ -384,6 +384,7 @@ class ReplayCard(QFrame):
         self._playing_notes: List[int] = []  # Track currently playing notes
         self._pending_timers: List[QTimer] = []  # Track pending delayed note timers
         self._should_play = False  # Flag to prevent delayed notes after release
+        self._drag_start_position = QPoint()  # For drag-to-rearrange
         self.setFixedSize(120, 80)
         self.setFrameStyle(QFrame.Shape.Box)
         self.setAcceptDrops(True)  # Allow drops on cards to replace them
@@ -432,49 +433,71 @@ class ReplayCard(QFrame):
             event.accept()
     
     def dropEvent(self, event):
-        """Handle drop on the card - replace this card with the dropped chord."""
+        """Handle drop on the card - replace this card with the dropped chord or rearrange cards."""
         if not event.mimeData().hasText():
             return
         
         data = event.mimeData().text()
         try:
             parts = data.split(":")
-            root_note_str = parts[0]
-            chord_type = parts[1]
-            root_note = int(root_note_str)
-            
-            # Parse actual notes if present
-            actual_notes = None
-            if len(parts) >= 3 and parts[2]:
-                try:
-                    actual_notes = [int(n) for n in parts[2].split(",") if n.strip()]
-                except (ValueError, AttributeError):
-                    actual_notes = None
-            
-            # Update this card's data
-            self.root_note = root_note
-            self.chord_type = chord_type
-            self.actual_notes = actual_notes or []
-            
-            # Update labels
-            layout = self.layout()
-            if layout:
-                for i in range(layout.count()):
-                    item = layout.itemAt(i)
-                    if item and item.widget():
-                        widget = item.widget()
-                        if isinstance(widget, QLabel):
-                            if i == 0:  # Root note label
-                                widget.setText(NOTES[root_note % 12])
-                            else:  # Chord type label
-                                widget.setText(chord_type)
-            
-            # If this card is in a grid (Chord Monitor), update grid tracking
-            if hasattr(self, '_slot_index'):
-                slot_idx = getattr(self, '_slot_index', None)
-                if slot_idx is not None and hasattr(self.replay_area, 'grid_positions'):
-                    # Update grid tracking
-                    self.replay_area.grid_positions[slot_idx] = self
+            if len(parts) >= 2 and parts[0] == "rearrange":
+                # Rearrange cards
+                slot_info = parts[1]
+                if slot_info.isdigit():
+                    slot_idx = int(slot_info)
+                    if hasattr(self.replay_area, 'grid_positions'):
+                        # Swap cards
+                        if self.replay_area.grid_positions[slot_idx] is not None and self.replay_area.grid_positions[self._slot_index] is not None:
+                            self.replay_area.grid_positions[slot_idx], self.replay_area.grid_positions[self._slot_index] = self.replay_area.grid_positions[self._slot_index], self.replay_area.grid_positions[slot_idx]
+                            # Update slot indices
+                            self._slot_index, self.replay_area.grid_positions[slot_idx]._slot_index = slot_idx, self._slot_index
+                            # Update grid layout
+                            self.replay_area.grid_layout.removeWidget(self.replay_area.grid_positions[slot_idx])
+                            self.replay_area.grid_layout.removeWidget(self)
+                            row = self._slot_index // 4
+                            col = self._slot_index % 4
+                            self.replay_area.grid_layout.addWidget(self, row, col)
+                            row = slot_idx // 4
+                            col = slot_idx % 4
+                            self.replay_area.grid_layout.addWidget(self.replay_area.grid_positions[slot_idx], row, col)
+            else:
+                # Replace this card with the dropped chord
+                root_note_str = parts[0]
+                chord_type = parts[1]
+                root_note = int(root_note_str)
+                
+                # Parse actual notes if present
+                actual_notes = None
+                if len(parts) >= 3 and parts[2]:
+                    try:
+                        actual_notes = [int(n) for n in parts[2].split(",") if n.strip()]
+                    except (ValueError, AttributeError):
+                        actual_notes = None
+                
+                # Update this card's data
+                self.root_note = root_note
+                self.chord_type = chord_type
+                self.actual_notes = actual_notes or []
+                
+                # Update labels
+                layout = self.layout()
+                if layout:
+                    for i in range(layout.count()):
+                        item = layout.itemAt(i)
+                        if item and item.widget():
+                            widget = item.widget()
+                            if isinstance(widget, QLabel):
+                                if i == 0:  # Root note label
+                                    widget.setText(NOTES[root_note % 12])
+                                else:  # Chord type label
+                                    widget.setText(chord_type)
+                
+                # If this card is in a grid (Chord Monitor), update grid tracking
+                if hasattr(self, '_slot_index'):
+                    slot_idx = getattr(self, '_slot_index', None)
+                    if slot_idx is not None and hasattr(self.replay_area, 'grid_positions'):
+                        # Update grid tracking
+                        self.replay_area.grid_positions[slot_idx] = self
             
             event.setDropAction(Qt.DropAction.CopyAction)
             event.accept()
@@ -482,30 +505,37 @@ class ReplayCard(QFrame):
             pass
     
     def mousePressEvent(self, event):  # type: ignore[override]
-        """Play chord when mouse button is pressed and hold it."""
+        """Store drag start position for potential rearrange."""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Stop any currently playing notes first
-            self._stop_playing_notes()
+            # Store drag start position for potential rearrange
+            self._drag_start_position = event.pos()
             
             # Enable playback
             self._should_play = True
-            
-            # Determine which notes to play
-            if self.actual_notes:
-                notes_to_play = self.actual_notes
-            else:
-                # Generate notes from chord type
-                if self.chord_type in CHORD_DEFINITIONS:
-                    _, intervals = CHORD_DEFINITIONS[self.chord_type]
-                    base_note = 60 + self.root_note
-                    notes_to_play = [base_note + interval for interval in intervals]
-                else:
-                    notes_to_play = []
-            
-            # Play the notes and track them
-            if notes_to_play:
-                self._playing_notes = notes_to_play
-                self._play_notes_sustained(notes_to_play)
+    
+    def mouseMoveEvent(self, event):  # type: ignore[override]
+        """Handle drag-to-rearrange when dragging card to another slot."""
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if (event.pos() - self._drag_start_position).manhattanLength() < 15:
+            return
+        
+        # Start drag operation for rearranging
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        # Include slot index so we know where it came from
+        slot_info = f"rearrange:{self._slot_index}"
+        mime_data.setText(slot_info)
+        drag.setMimeData(mime_data)
+        
+        # Create a pixmap for drag preview
+        pixmap = self.grab()
+        if pixmap:
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(event.pos())
+        
+        # Execute drag
+        drag.exec_(Qt.DropAction.MoveAction)
     
     def mouseReleaseEvent(self, event):  # type: ignore[override]
         """Stop playing chord when mouse button is released."""
@@ -523,6 +553,14 @@ class ReplayCard(QFrame):
             # Only stop notes if sustain is off
             if not sustain_enabled:
                 self._stop_playing_notes()
+            
+            # Check if it was a click (not a drag)
+            if (event.pos() - self._drag_start_position).manhattanLength() < 10:
+                # Play notes on click
+                notes = self.actual_notes or [self.root_note]
+                velocity = self._get_velocity_for_note()
+                for note in notes:
+                    self.replay_area.midi.note_on(note, velocity, self.replay_area.midi_channel)
     
     def _play_notes_sustained(self, notes: List[int]) -> None:
         """Play notes without auto-release (for hold functionality)."""
@@ -600,6 +638,50 @@ class ReplayCard(QFrame):
         for note in self._playing_notes:
             self.replay_area.midi.note_off(note, self.replay_area.midi_channel)
         self._playing_notes = []
+    
+    def contextMenuEvent(self, event):  # type: ignore[override]
+        """Show context menu on right-click to remove card."""
+        menu = QMenu(self)
+        remove_action = menu.addAction("Remove")
+        remove_action.triggered.connect(self._remove_card)
+        menu.exec_(event.globalPos())
+    
+    def _remove_card(self) -> None:
+        """Remove this card from the grid."""
+        if self._slot_index is not None and hasattr(self.replay_area, 'grid_positions'):
+            # Clear the slot
+            self.replay_area.grid_positions[self._slot_index] = None
+            self.replay_area.cards.remove(self)
+            
+            # Create placeholder button to fill the empty slot
+            if hasattr(self.replay_area, 'placeholder_buttons') and hasattr(self.replay_area, 'grid_layout'):
+                row = self._slot_index // 4
+                col = self._slot_index % 4
+                
+                placeholder = QPushButton("")
+                placeholder.setCheckable(False)
+                placeholder.setFixedSize(80, 80)
+                placeholder.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+                placeholder.setStyleSheet("""
+                    QPushButton {
+                        background: #2b2f36;
+                        color: #ddd;
+                        border: 2px solid #3b4148;
+                        border-radius: 10px;
+                    }
+                    QPushButton:hover {
+                        border: 2px solid #3b4148;
+                    }
+                """)
+                placeholder.setAcceptDrops(True)
+                placeholder.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                placeholder.installEventFilter(self.replay_area)
+                
+                self.replay_area.placeholder_buttons[self._slot_index] = placeholder
+                self.replay_area.grid_layout.addWidget(placeholder, row, col)
+            
+            # Delete this card
+            self.deleteLater()
 
 
 class ChordCard(QFrame):

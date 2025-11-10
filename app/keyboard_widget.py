@@ -319,7 +319,7 @@ class KeyboardWidget(QWidget):
         self.latch = False
         self.chord_monitor = True  # Enable chord detection and display by default
         self.visual_hold_on_sustain = False  # whether sustained notes keep visual down state
-        self.drag_while_sustain = False  # whether to allow dragging while sustain is active
+        self.drag_while_sustain = True  # whether to allow dragging while sustain is active
         self.vel_curve = "linear"
         self.active_notes: set[tuple[int,int]] = set()
         # Polyphony control

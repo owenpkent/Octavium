@@ -228,7 +228,7 @@ class LauncherWindow(QMainWindow):
         from .chord_monitor_window import ChordMonitorWindow
         if self.shared_midi:
             try:
-                window = ChordMonitorWindow(self.shared_midi, 0, self)
+                window = ChordMonitorWindow(self.shared_midi, 0, None)
                 window.show()
                 self.opened_windows.append(window)
             except Exception as e:
