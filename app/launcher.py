@@ -34,7 +34,7 @@ class LauncherWindow(QMainWindow):
         
         try:
             # Prefer loopMIDI Port 1 if available
-            self.shared_midi = MidiOut(port_name_contains="loopMIDI Port 1")
+            self.shared_midi = MidiOut(port_name_contains="loopMIDI Port 1", is_shared=True)
             backend = "pygame" if self.shared_midi.use_pygame else "mido"
             print(f"✓ Launcher initialized with {backend} MIDI backend")
         except Exception as e:

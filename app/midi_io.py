@@ -15,9 +15,10 @@ except Exception:
     pass
 
 class MidiOut:
-    def __init__(self, port_name_contains: str | None = None):
+    def __init__(self, port_name_contains: str | None = None, is_shared: bool = False):
         # Try mido first, fallback to pygame
         self.use_pygame = False
+        self.is_shared = is_shared  # If True, don't close port on cleanup
         try:
             name = None
             if port_name_contains:
@@ -140,6 +141,10 @@ class MidiOut:
 
     def close(self):
         """Close MIDI port and cleanup backend safely."""
+        # Don't close shared MIDI outputs - they're managed by the launcher
+        if self.is_shared:
+            return
+        
         try:
             if hasattr(self, 'port') and self.port is not None:
                 try:

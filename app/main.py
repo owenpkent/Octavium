@@ -49,6 +49,8 @@ class MainWindow(QMainWindow):
         self.current_scale = 1.0
         self.current_channel = 1
         self.chord_monitor_window: ChordMonitorWindow | None = None
+        # Track if MIDI is shared (from launcher) to prevent port changes
+        self.midi_is_shared = midi is not None
         # Create or reuse MIDI
         if midi is None:
             try:
@@ -632,6 +634,16 @@ class MainWindow(QMainWindow):
             pass
     
     def select_midi_port(self):
+        # Don't allow port changes when using shared MIDI from launcher
+        if self.midi_is_shared:
+            QMessageBox.information(
+                self,
+                "MIDI Port",
+                "MIDI port is managed by the launcher and cannot be changed.\n\n"
+                "Close this window and use the launcher to open windows with different MIDI settings."
+            )
+            return
+        
         ports = list_output_names()
         if not ports:
             QMessageBox.warning(self, "MIDI", "No MIDI output ports found.")
