@@ -260,6 +260,19 @@ class MainWindow(QMainWindow):
                 pass
         chord_monitor.triggered.connect(_toggle_chord_monitor)
         view_menu.addAction(chord_monitor)
+        # Drag While Sustain option
+        drag_while_sustain = QAction("Drag While Sustain", self)
+        drag_while_sustain.setCheckable(True)
+        drag_while_sustain.setChecked(bool(self.menu_actions.get('drag_while_sustain_checked', False)))
+        def _toggle_drag_while_sustain(checked: bool):
+            try:
+                self.keyboard.drag_while_sustain = checked  # type: ignore[attr-defined]
+                # Persist the checked state
+                self.menu_actions['drag_while_sustain_checked'] = checked
+            except Exception:
+                pass
+        drag_while_sustain.triggered.connect(_toggle_drag_while_sustain)
+        view_menu.addAction(drag_while_sustain)
         # Persist
         self.menu_actions['show_mod'] = show_mod.isChecked()
         self.menu_actions['show_pitch'] = show_pitch.isChecked()
@@ -267,6 +280,7 @@ class MainWindow(QMainWindow):
         self.menu_actions['view_show_pitch'] = show_pitch
         self.menu_actions['visual_hold'] = visual_hold
         self.menu_actions['chord_monitor'] = chord_monitor
+        self.menu_actions['drag_while_sustain'] = drag_while_sustain
         # Apply current selections
         try:
             self._apply_show_mod_wheel(show_mod.isChecked())
@@ -551,6 +565,10 @@ class MainWindow(QMainWindow):
                     chord_monitor_checked = self.menu_actions['chord_monitor'].isChecked() if hasattr(self.menu_actions['chord_monitor'], 'isChecked') else bool(self.menu_actions.get('chord_monitor', False))
                     if hasattr(self.keyboard, 'set_chord_monitor'):
                         self.keyboard.set_chord_monitor(chord_monitor_checked)
+                # Drag while sustain
+                if 'drag_while_sustain' in self.menu_actions:
+                    drag_while_sustain_checked = self.menu_actions['drag_while_sustain'].isChecked() if hasattr(self.menu_actions['drag_while_sustain'], 'isChecked') else bool(self.menu_actions.get('drag_while_sustain_checked', False))
+                    self.keyboard.drag_while_sustain = drag_while_sustain_checked
                 # Voices (polyphony): apply current selection (Unlimited or 1-8)
                 sel = self.menu_actions.get('voices_selected', 'Unlimited')
                 try:

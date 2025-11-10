@@ -319,6 +319,7 @@ class KeyboardWidget(QWidget):
         self.latch = False
         self.chord_monitor = True  # Enable chord detection and display by default
         self.visual_hold_on_sustain = False  # whether sustained notes keep visual down state
+        self.drag_while_sustain = False  # whether to allow dragging while sustain is active
         self.vel_curve = "linear"
         self.active_notes: set[tuple[int,int]] = set()
         # Polyphony control
@@ -1245,8 +1246,11 @@ class KeyboardWidget(QWidget):
         # Update chord card if chord monitor is on
         if getattr(self, 'chord_monitor', False):
             self._update_chord_card()
-        # Begin drag tracking if neither latch nor sustain
-        if not getattr(self, 'latch', False) and not getattr(self, 'sustain', False):
+        # Begin drag tracking if neither latch nor sustain (or sustain with drag_while_sustain enabled)
+        sustain_active = getattr(self, 'sustain', False)
+        drag_while_sustain_enabled = getattr(self, 'drag_while_sustain', False)
+        can_drag = not getattr(self, 'latch', False) and (not sustain_active or drag_while_sustain_enabled)
+        if can_drag:
             self.dragging = True
             self.last_drag_key = key
             self._last_drag_note_base = key.note
