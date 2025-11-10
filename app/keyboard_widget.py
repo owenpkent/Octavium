@@ -325,6 +325,7 @@ class KeyboardWidget(QWidget):
         self.polyphony_enabled: bool = False
         self.polyphony_max: int = 8
         self._voice_order: list[tuple[int,int,int]] = []  # (note, ch, base_note)
+        self._last_played_note: int | None = None  # Track most recently played note for sustain display
         self.dragging = False
         self.last_drag_key = None
         self.last_drag_button: QPushButton | None = None
@@ -1234,6 +1235,8 @@ class KeyboardWidget(QWidget):
             pass
         self.active_notes.add((note, ch))
         self._voice_order.append((note, ch, base_note))
+        # Track most recently played note for sustain display
+        self._last_played_note = note
         # In latch mode, use held visual state, otherwise just active
         if getattr(self, 'latch', False):
             self._apply_note_visual(base_note, True, True)  # held state for latched notes
@@ -1686,6 +1689,15 @@ class KeyboardWidget(QWidget):
             active_notes = [note for note, ch in self.active_notes if ch == self.midi_channel]
             # Show card even for single notes (user requested this)
             if len(active_notes) < 1:
+                return
+            
+            # When sustain is on, only show the most recently played note
+            if getattr(self, 'sustain', False) and self._last_played_note is not None:
+                note = self._last_played_note
+                root_pc = note % 12
+                card = KeyboardChordCard(root_pc, "Note", [note], self.chord_card_container)
+                card_layout.addWidget(card)
+                self.current_chord_card = card
                 return
             
             # For single notes, just show the note name

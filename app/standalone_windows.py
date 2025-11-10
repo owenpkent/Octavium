@@ -41,8 +41,7 @@ class PadGridWindow(QMainWindow):
     
     def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        from .pad_grid import PadGridWidget
-        from .models import Layout, RowDef, KeyDef
+        from .pad_grid import PadGridWidget, create_pad_grid_layout
         
         self.setWindowTitle("Pad Grid")
         
@@ -54,23 +53,8 @@ class PadGridWindow(QMainWindow):
             pass
         
         # Create a 4x4 pad grid layout with MIDI notes starting at C2 (36)
-        rows = []
-        base_note = 36  # C2
-        for row_idx in range(4):
-            keys = []
-            for col_idx in range(4):
-                note = base_note + (row_idx * 4) + col_idx
-                keys.append(KeyDef(
-                    label=f"Pad {row_idx * 4 + col_idx + 1}",
-                    note=note,
-                    width=1.0,
-                    height=1.0,
-                    velocity=100,
-                    channel=midi_channel
-                ))
-            rows.append(RowDef(keys=keys))
-        
-        layout_model = Layout(name="Pad Grid", rows=rows, columns=4)
+        # Use the create_pad_grid_layout function to ensure consistent ordering
+        layout_model = create_pad_grid_layout(rows=4, cols=4, start_note=36)
         
         self.pad_grid = PadGridWidget(layout_model, midi_out, title="Pad Grid", scale=1.0)
         self.setCentralWidget(self.pad_grid)
