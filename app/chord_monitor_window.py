@@ -1,6 +1,6 @@
 """Simplified Chord Monitor Window - just a 2x4 grid replay area."""
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QFrame, QSizePolicy, QMainWindow, QPushButton, QSlider, QCheckBox
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QFrame, QSizePolicy, QMainWindow, QPushButton, QSlider, QCheckBox, QComboBox
 )
 from PySide6.QtCore import Qt, QMimeData, QEvent, QTimer, QRectF
 from PySide6.QtGui import QIcon, QPainter, QColor
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class ChordMonitorReplayArea(QWidget):
-    """A 2x4 grid replay area for chord cards - styled like pad grid."""
+    """A 4x4 grid replay area for chord cards - styled like pad grid."""
     _parent_window: Optional['ChordMonitorWindow']  # For velocity access
     
     def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
@@ -33,7 +33,7 @@ class ChordMonitorReplayArea(QWidget):
             }
         """)
         
-        # Create 2x4 grid layout
+        # Create 4x4 grid layout
         grid_layout = QGridLayout(self)
         grid_layout.setContentsMargins(10, 10, 10, 10)
         grid_layout.setSpacing(10)
@@ -42,11 +42,11 @@ class ChordMonitorReplayArea(QWidget):
         # Button size (similar to pad grid)
         btn_size = 80
         
-        # Create empty placeholder buttons for all 8 slots (2 rows x 4 columns)
-        self.grid_positions: List[Optional[ReplayCard]] = [None] * 8
+        # Create empty placeholder buttons for all 16 slots (4 rows x 4 columns)
+        self.grid_positions: List[Optional[ReplayCard]] = [None] * 16
         self.placeholder_buttons: List[Optional[QPushButton]] = []
         
-        for i in range(8):
+        for i in range(16):
             row = i // 4
             col = i % 4
             
@@ -79,7 +79,7 @@ class ChordMonitorReplayArea(QWidget):
         gap = 10
         margins = 20
         width = (btn_size * 4) + (gap * 3) + margins
-        height = (btn_size * 2) + (gap * 1) + margins
+        height = (btn_size * 4) + (gap * 3) + margins
         self.setFixedSize(width, height)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
     
@@ -310,9 +310,9 @@ class ChordMonitorReplayArea(QWidget):
             if x < col_start or x >= col_start + btn_size:
                 return None
             
-            # Calculate which row (0-1) - check if within button bounds
+            # Calculate which row (0-3) - check if within button bounds
             row = int(y // (btn_size + gap))
-            if row < 0 or row >= 2:
+            if row < 0 or row >= 4:
                 return None
             
             # Check if y is actually within a button (not in gap)
@@ -322,7 +322,7 @@ class ChordMonitorReplayArea(QWidget):
             
             # Convert to slot index
             slot_index = row * 4 + col
-            if 0 <= slot_index < 8:
+            if 0 <= slot_index < 16:
                 return slot_index
         except Exception:
             pass
@@ -477,7 +477,7 @@ class ChordMonitorReplayArea(QWidget):
 
 
 class ChordMonitorWindow(QMainWindow):
-    """Simplified window containing just a 2x4 grid replay area."""
+    """Simplified window containing just a 4x4 grid replay area."""
     _parent_main: Optional['Any']  # Reference to main window for close event handling
     
     def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
@@ -567,13 +567,38 @@ class ChordMonitorWindow(QMainWindow):
         
         layout.addLayout(header_layout)
         
+        # Humanize section
+        humanize_frame = QFrame()
+        humanize_frame.setStyleSheet("""
+            QFrame {
+                background-color: #1e2127;
+                border: 1px solid #3b4148;
+                border-radius: 6px;
+                padding: 8px;
+            }
+        """)
+        humanize_layout = QVBoxLayout(humanize_frame)
+        humanize_layout.setSpacing(8)
+        humanize_layout.setContentsMargins(8, 8, 8, 8)
+        
+        # Humanize header
+        humanize_header = QLabel("Humanize")
+        humanize_header.setStyleSheet("font-size: 12px; font-weight: bold; color: #fff;")
+        humanize_layout.addWidget(humanize_header)
+        
         # Velocity controls
         velocity_layout = QHBoxLayout()
         velocity_layout.setSpacing(10)
         
         vel_label = QLabel("Velocity:")
-        vel_label.setStyleSheet("color: #aaa;")
+        vel_label.setStyleSheet("color: #aaa; min-width: 60px;")
         velocity_layout.addWidget(vel_label)
+        
+        # Container for sliders (to stack them in same space)
+        vel_slider_container = QWidget()
+        vel_slider_container.setFixedWidth(200)
+        vel_slider_layout = QHBoxLayout(vel_slider_container)
+        vel_slider_layout.setContentsMargins(0, 0, 0, 0)
         
         # Single velocity slider (when randomization is off)
         self.vel_slider = QSlider(Qt.Orientation.Horizontal)
@@ -601,7 +626,7 @@ class ChordMonitorWindow(QMainWindow):
                 background: #4a9fff;
             }
         """)
-        velocity_layout.addWidget(self.vel_slider)
+        vel_slider_layout.addWidget(self.vel_slider)
         
         # Range slider (when randomization is on)
         self.vel_range = self._RangeSlider(1, 127, low=80, high=110, parent=self)
@@ -609,7 +634,10 @@ class ChordMonitorWindow(QMainWindow):
         self.vel_range.setMinimumHeight(22)
         self.vel_range.setFixedHeight(22)
         self.vel_range.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        velocity_layout.addWidget(self.vel_range)
+        vel_slider_layout.addWidget(self.vel_range)
+        
+        velocity_layout.addWidget(vel_slider_container)
+        velocity_layout.addSpacing(20)  # Add space between slider and checkbox
         
         # Randomize checkbox
         self.vel_random_chk = QCheckBox("Randomize")
@@ -638,9 +666,137 @@ class ChordMonitorWindow(QMainWindow):
         self.vel_range.setVisible(True)    # Show range slider
         
         velocity_layout.addStretch()
-        layout.addLayout(velocity_layout)
+        humanize_layout.addLayout(velocity_layout)
         
-        # Replay area (2x4 grid)
+        # Drift controls
+        drift_layout = QHBoxLayout()
+        drift_layout.setSpacing(10)
+        
+        # Drift direction dropdown (styled to match velocity label)
+        self.drift_direction = QComboBox()
+        self.drift_direction.addItems(["Drift: ↑", "Drift: ↓", "Drift: Random"])
+        self.drift_direction.setCurrentIndex(0)  # Default to "Up"
+        self.drift_direction.setFixedWidth(100)
+        self.drift_direction.setFixedHeight(36)
+        self.drift_direction.setStyleSheet("""
+            QComboBox {
+                background-color: #2b2f36;
+                border: 2px solid #3b4148;
+                border-radius: 8px;
+                padding: 8px 12px;
+                color: #fff;
+                text-align: left;
+            }
+            QComboBox:hover {
+                border: 2px solid #2f82e6;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 0px;
+                background: transparent;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                width: 0px;
+                height: 0px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2b2f36;
+                border: 2px solid #3b4148;
+                border-radius: 4px;
+                selection-background-color: #2f82e6;
+                color: #fff;
+                padding: 4px;
+                outline: none;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 6px 12px;
+                min-height: 24px;
+                border: none;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #2f82e6;
+            }
+        """)
+        drift_layout.addWidget(self.drift_direction)
+        
+        # Container for drift sliders (to stack them in same space)
+        drift_slider_container = QWidget()
+        drift_slider_container.setFixedWidth(200)
+        drift_slider_layout = QHBoxLayout(drift_slider_container)
+        drift_slider_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Single drift slider (when randomization is off)
+        self.drift_slider = QSlider(Qt.Orientation.Horizontal)
+        self.drift_slider.setMinimum(0)
+        self.drift_slider.setMaximum(200)
+        self.drift_slider.setValue(0)
+        self.drift_slider.setFixedWidth(200)
+        self.drift_slider.setFixedHeight(20)
+        self.drift_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                border: 1px solid #3b4148;
+                height: 6px;
+                background: #2b2f36;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #2f82e6;
+                border: 1px solid #2a6fc2;
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                margin: -5px 0;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #4a9fff;
+            }
+        """)
+        drift_slider_layout.addWidget(self.drift_slider)
+        
+        # Range slider for drift (when randomization is on)
+        self.drift_range = self._RangeSlider(0, 200, low=0, high=50, parent=self)
+        self.drift_range.setFixedWidth(200)
+        self.drift_range.setMinimumHeight(22)
+        self.drift_range.setFixedHeight(22)
+        self.drift_range.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        drift_slider_layout.addWidget(self.drift_range)
+        
+        drift_layout.addWidget(drift_slider_container)
+        drift_layout.addSpacing(20)  # Add space between slider and checkbox
+        
+        # Randomize checkbox for drift
+        self.drift_random_chk = QCheckBox("Randomize")
+        self.drift_random_chk.setChecked(False)
+        self.drift_random_chk.setStyleSheet("""
+            QCheckBox {
+                color: #aaa;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 2px solid #3b4148;
+                border-radius: 3px;
+                background: #2b2f36;
+            }
+            QCheckBox::indicator:checked {
+                background: #2f82e6;
+                border: 2px solid #2a6fc2;
+            }
+        """)
+        self.drift_random_chk.toggled.connect(self._toggle_drift_random)
+        drift_layout.addWidget(self.drift_random_chk)
+        
+        # Initialize visibility
+        self.drift_slider.setVisible(True)   # Show single slider initially (random is off)
+        self.drift_range.setVisible(False)   # Hide range slider
+        
+        drift_layout.addStretch()
+        humanize_layout.addLayout(drift_layout)
+        
+        layout.addWidget(humanize_frame)
+        
+        # Replay area (4x4 grid)
         self.replay_area = ChordMonitorReplayArea(midi_out, midi_channel, central_widget)
         # Store reference to parent window in replay area for velocity access
         self.replay_area._parent_window = self
@@ -648,13 +804,14 @@ class ChordMonitorWindow(QMainWindow):
         
         layout.addStretch()
         
-        # Calculate appropriate window size for 2x4 grid
+        # Calculate appropriate window size for 4x4 grid
         # Each button is 80x80, with spacing and margins
+        # Need extra space for header and Humanize section
         btn_size = 80
         spacing = 10
         margins = 20
-        width = (btn_size * 4) + (spacing * 3) + margins + 40  # 4 columns
-        height = (btn_size * 2) + (spacing * 1) + margins + 100  # 2 rows + header
+        width = (btn_size * 4) + (spacing * 3) + margins + 80  # 4 columns + extra width for controls
+        height = (btn_size * 4) + (spacing * 3) + margins + 220  # 4 rows + header + humanize section
         self.resize(width, height)
         self.setMinimumSize(width, height)
     
@@ -677,6 +834,15 @@ class ChordMonitorWindow(QMainWindow):
         except Exception:
             pass
     
+    def _toggle_drift_random(self, checked: bool) -> None:
+        """Switch between fixed drift slider and range slider."""
+        random_mode = bool(checked)
+        try:
+            self.drift_slider.setVisible(not random_mode)
+            self.drift_range.setVisible(random_mode)
+        except Exception:
+            pass
+    
     def _get_velocity(self) -> int:
         """Get velocity based on current settings (randomized or fixed)."""
         if self.vel_random_chk.isChecked():
@@ -684,6 +850,26 @@ class ChordMonitorWindow(QMainWindow):
             return random.randint(min(low, high), max(low, high))
         else:
             return self.vel_slider.value()
+    
+    def _get_drift(self) -> int:
+        """Get drift value in milliseconds (randomized or fixed)."""
+        if self.drift_random_chk.isChecked():
+            low, high = self.drift_range.values()
+            return random.randint(min(low, high), max(low, high))
+        else:
+            return self.drift_slider.value()
+    
+    def _get_drift_direction(self) -> str:
+        """Get the selected drift direction (Up, Down, or Random)."""
+        # Parse direction from "Drift: ↑" format
+        text = self.drift_direction.currentText()
+        if "↑" in text:
+            return "Up"
+        elif "↓" in text:
+            return "Down"
+        elif "Random" in text:
+            return "Random"
+        return "Up"  # Default
     
     def _all_notes_off_clicked(self) -> None:
         """Handle All Notes Off button click."""

@@ -5,10 +5,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QMimeData, QPoint, QTimer, QRectF
 from PySide6.QtGui import QDrag, QPainter, QColor, QFont
-from typing import List, Tuple, Optional, Callable, Iterable, Dict, Set, FrozenSet, TYPE_CHECKING
+from typing import List, Tuple, Optional, Callable, Iterable, Dict, Set, FrozenSet, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from typing import Any
     from .keyboard_widget import RangeSlider
 from dataclasses import dataclass
 from collections import defaultdict
@@ -382,6 +381,9 @@ class ReplayCard(QFrame):
         self.actual_notes = actual_notes or []  # Store actual MIDI notes for exact replay
         self.replay_area = replay_area
         self._slot_index = None
+        self._playing_notes: List[int] = []  # Track currently playing notes
+        self._pending_timers: List[QTimer] = []  # Track pending delayed note timers
+        self._should_play = False  # Flag to prevent delayed notes after release
         self.setFixedSize(120, 80)
         self.setFrameStyle(QFrame.Shape.Box)
         self.setAcceptDrops(True)  # Allow drops on cards to replace them
@@ -480,13 +482,124 @@ class ReplayCard(QFrame):
             pass
     
     def mousePressEvent(self, event):  # type: ignore[override]
-        """Play chord when clicked."""
+        """Play chord when mouse button is pressed and hold it."""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Use actual notes if available, otherwise generate from chord type
+            # Stop any currently playing notes first
+            self._stop_playing_notes()
+            
+            # Enable playback
+            self._should_play = True
+            
+            # Determine which notes to play
             if self.actual_notes:
-                self.replay_area._play_exact_notes(self.actual_notes)
+                notes_to_play = self.actual_notes
             else:
-                self.replay_area._replay_chord(self.root_note, self.chord_type)
+                # Generate notes from chord type
+                if self.chord_type in CHORD_DEFINITIONS:
+                    _, intervals = CHORD_DEFINITIONS[self.chord_type]
+                    base_note = 60 + self.root_note
+                    notes_to_play = [base_note + interval for interval in intervals]
+                else:
+                    notes_to_play = []
+            
+            # Play the notes and track them
+            if notes_to_play:
+                self._playing_notes = notes_to_play
+                self._play_notes_sustained(notes_to_play)
+    
+    def mouseReleaseEvent(self, event):  # type: ignore[override]
+        """Stop playing chord when mouse button is released."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Disable playback to prevent delayed notes
+            self._should_play = False
+            # Cancel any pending timers
+            self._cancel_pending_timers()
+            
+            # Check if sustain is enabled
+            sustain_enabled = False
+            if hasattr(self.replay_area, 'sustain'):
+                sustain_enabled = self.replay_area.sustain
+            
+            # Only stop notes if sustain is off
+            if not sustain_enabled:
+                self._stop_playing_notes()
+    
+    def _play_notes_sustained(self, notes: List[int]) -> None:
+        """Play notes without auto-release (for hold functionality)."""
+        # Get drift value and direction from parent window
+        drift_ms = 0
+        drift_direction = "Up"
+        if hasattr(self.replay_area, '_parent_window') and self.replay_area._parent_window is not None:
+            if hasattr(self.replay_area._parent_window, '_get_drift'):
+                drift_ms = self.replay_area._parent_window._get_drift()
+            if hasattr(self.replay_area._parent_window, '_get_drift_direction'):
+                drift_direction = self.replay_area._parent_window._get_drift_direction()
+        
+        # Play notes with drift timing
+        if drift_ms > 0 and len(notes) > 1:
+            # Order notes based on drift direction
+            ordered_notes = notes.copy()
+            if drift_direction == "Down":
+                ordered_notes.reverse()
+            elif drift_direction == "Random":
+                import random as rand
+                rand.shuffle(ordered_notes)
+            # "Up" uses the natural order
+            
+            # Spread notes over the drift time
+            for i, note in enumerate(ordered_notes):
+                # Calculate delay for this note (spread evenly across drift time)
+                delay_ms = int((i / (len(ordered_notes) - 1)) * drift_ms) if len(ordered_notes) > 1 else 0
+                
+                # Schedule note with delay
+                if delay_ms == 0:
+                    # Play first note immediately
+                    velocity = self._get_velocity_for_note()
+                    self.replay_area.midi.note_on(note, velocity, self.replay_area.midi_channel)
+                else:
+                    # Schedule delayed notes and track the timer
+                    timer = QTimer()
+                    timer.setSingleShot(True)
+                    timer.timeout.connect(lambda n=note: self._play_single_note(n))
+                    timer.start(delay_ms)
+                    self._pending_timers.append(timer)
+        else:
+            # No drift - play all notes immediately
+            for note in notes:
+                velocity = self._get_velocity_for_note()
+                self.replay_area.midi.note_on(note, velocity, self.replay_area.midi_channel)
+    
+    def _get_velocity_for_note(self) -> int:
+        """Get velocity for a single note."""
+        velocity = 100
+        if hasattr(self.replay_area, '_parent_window') and self.replay_area._parent_window is not None:
+            if hasattr(self.replay_area._parent_window, '_get_velocity'):
+                velocity = self.replay_area._parent_window._get_velocity()
+        elif hasattr(self.replay_area, '_parent_widget') and self.replay_area._parent_widget is not None:
+            if hasattr(self.replay_area._parent_widget, '_get_velocity'):
+                velocity = self.replay_area._parent_widget._get_velocity()
+        return velocity
+    
+    def _play_single_note(self, note: int) -> None:
+        """Play a single note (used for delayed playback with drift)."""
+        # Only play if we should still be playing (mouse still held)
+        if not self._should_play:
+            return
+        velocity = self._get_velocity_for_note()
+        self.replay_area.midi.note_on(note, velocity, self.replay_area.midi_channel)
+    
+    def _cancel_pending_timers(self) -> None:
+        """Cancel all pending delayed note timers."""
+        for timer in self._pending_timers:
+            if timer.isActive():
+                timer.stop()
+        self._pending_timers = []
+    
+    def _stop_playing_notes(self) -> None:
+        """Stop all currently playing notes."""
+        for note in self._playing_notes:
+            self.replay_area.midi.note_off(note, self.replay_area.midi_channel)
+        self._playing_notes = []
 
 
 class ChordCard(QFrame):
@@ -572,6 +685,7 @@ class ReplayArea(QWidget):
     _layout: QHBoxLayout
     grid_positions: Dict[int, ReplayCard]  # For chord monitor compatibility
     _parent_widget: Optional['ChordSelectorWidget']  # For velocity access
+    _parent_window: Optional[Any]  # For chord monitor window reference
     
     def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -580,6 +694,7 @@ class ReplayArea(QWidget):
         self.cards: List[ReplayCard] = []
         self.grid_positions = {}
         self._parent_widget = None
+        self._parent_window = None
         
         self.setAcceptDrops(True)
         self.setMinimumHeight(120)
