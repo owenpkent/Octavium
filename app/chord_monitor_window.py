@@ -25,6 +25,7 @@ class ChordMonitorReplayArea(QWidget):
         self.cards: List[ReplayCard] = []
         self.sustain: bool = False
         self._parent_window = None
+        self._active_notes: List[int] = []
         
         self.setAcceptDrops(True)
         self.setStyleSheet("""
@@ -435,15 +436,35 @@ class ChordMonitorReplayArea(QWidget):
             if hasattr(self._parent_window, '_get_velocity'):
                 velocity = self._parent_window._get_velocity()
         
+        # If exclusive mode is enabled on parent, stop any currently active notes first
+        try:
+            if self._parent_window is not None and hasattr(self._parent_window, '_is_exclusive_mode'):
+                if self._parent_window._is_exclusive_mode():
+                    self._stop_active_notes()
+        except Exception:
+            pass
+        
         # Play all notes
         for note in notes:
-            self.midi.note_on(note, velocity, self.midi_channel)
+            try:
+                self.midi.note_on(note, velocity, self.midi_channel)
+                self._active_notes.append(note)
+            except Exception:
+                pass
         
         # Only schedule note offs if sustain is off
         if not self.sustain:
             def release_notes() -> None:
-                for note in notes:
-                    self.midi.note_off(note, self.midi_channel)
+                try:
+                    for note in notes:
+                        self.midi.note_off(note, self.midi_channel)
+                except Exception:
+                    pass
+                # Remove released notes from active tracking
+                try:
+                    self._active_notes = [n for n in self._active_notes if n not in notes]
+                except Exception:
+                    self._active_notes.clear()
             QTimer.singleShot(200, release_notes)
 
     def _play_chord(self, root_note: int, chord_type: str) -> None:
@@ -460,17 +481,41 @@ class ChordMonitorReplayArea(QWidget):
             if hasattr(self._parent_window, '_get_velocity'):
                 velocity = self._parent_window._get_velocity()
         
+        # If exclusive mode is enabled on parent, stop any currently active notes first
+        try:
+            if self._parent_window is not None and hasattr(self._parent_window, '_is_exclusive_mode'):
+                if self._parent_window._is_exclusive_mode():
+                    self._stop_active_notes()
+        except Exception:
+            pass
+        
         # Play all notes of the chord
         for interval in intervals:
             note = base_note + interval
-            self.midi.note_on(note, velocity, self.midi_channel)
+            try:
+                self.midi.note_on(note, velocity, self.midi_channel)
+                self._active_notes.append(note)
+            except Exception:
+                pass
         
         # Only schedule note offs if sustain is off
         if not self.sustain:
             def release_notes() -> None:
-                for interval in intervals:
-                    note = base_note + interval
-                    self.midi.note_off(note, self.midi_channel)
+                try:
+                    for interval in intervals:
+                        note = base_note + interval
+                        self.midi.note_off(note, self.midi_channel)
+                except Exception:
+                    pass
+                # Remove released notes from active tracking
+                try:
+                    remaining: List[int] = []
+                    for n in self._active_notes:
+                        if n < base_note or n > base_note + max(intervals):
+                            remaining.append(n)
+                    self._active_notes = remaining
+                except Exception:
+                    self._active_notes.clear()
             QTimer.singleShot(200, release_notes)
 
     def set_channel(self, channel: int) -> None:
@@ -484,7 +529,22 @@ class ChordMonitorReplayArea(QWidget):
         if not sustain:
             # Note: We don't track individual playing notes, so this is a limitation
             # In a full implementation, we'd track active notes per card
+            self._stop_active_notes()
+
+    def _stop_active_notes(self) -> None:
+        """Stop any notes currently tracked as active for this replay area."""
+        if not getattr(self, '_active_notes', None):
+            return
+        try:
+            for note in self._active_notes:
+                self.midi.note_off(note, self.midi_channel)
+        except Exception:
             pass
+        self._active_notes.clear()
+
+    def clear_active_notes(self) -> None:
+        """Public wrapper to clear any active notes (used by parent window)."""
+        self._stop_active_notes()
 
 
 class ChordMonitorWindow(QMainWindow):
@@ -805,6 +865,30 @@ class ChordMonitorWindow(QMainWindow):
         drift_layout.addStretch()
         humanize_layout.addLayout(drift_layout)
         
+        # Exclusive chord mode
+        exclusive_layout = QHBoxLayout()
+        self.exclusive_chk = QCheckBox("Exclusive chord mode")
+        self.exclusive_chk.setChecked(False)
+        self.exclusive_chk.setStyleSheet("""
+            QCheckBox {
+                color: #aaa;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 2px solid #3b4148;
+                border-radius: 3px;
+                background: #2b2f36;
+            }
+            QCheckBox::indicator:checked {
+                background: #2f82e6;
+                border: 2px solid #2a6fc2;
+            }
+        """)
+        exclusive_layout.addWidget(self.exclusive_chk)
+        exclusive_layout.addStretch()
+        humanize_layout.addLayout(exclusive_layout)
+        
         layout.addWidget(humanize_frame)
         
         # Replay area (4x4 grid)
@@ -882,6 +966,14 @@ class ChordMonitorWindow(QMainWindow):
             return "Random"
         return "Up"  # Default
     
+    def _is_exclusive_mode(self) -> bool:
+        """Return True if Exclusive chord mode is enabled."""
+        chk = getattr(self, 'exclusive_chk', None)
+        try:
+            return bool(chk and chk.isChecked())
+        except Exception:
+            return False
+    
     def _all_notes_off_clicked(self) -> None:
         """Handle All Notes Off button click."""
         try:
@@ -903,6 +995,13 @@ class ChordMonitorWindow(QMainWindow):
         try:
             for n in range(128):
                 self.replay_area.midi.note_off(n, self.replay_area.midi_channel)
+        except Exception:
+            pass
+        
+        # Clear any locally tracked active notes so exclusive mode stays in sync
+        try:
+            if hasattr(self.replay_area, 'clear_active_notes'):
+                self.replay_area.clear_active_notes()
         except Exception:
             pass
     

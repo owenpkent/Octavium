@@ -557,10 +557,29 @@ class ReplayCard(QFrame):
             # Check if it was a click (not a drag)
             if (event.pos() - self._drag_start_position).manhattanLength() < 10:
                 # Play notes on click
-                notes = self.actual_notes or [self.root_note]
-                velocity = self._get_velocity_for_note()
-                for note in notes:
-                    self.replay_area.midi.note_on(note, velocity, self.replay_area.midi_channel)
+                notes = self.actual_notes or []
+                # Prefer Chord Monitor replay-area helpers when available so
+                # sustain / exclusive modes and timing are respected
+                try:
+                    # If we have explicit MIDI notes and the replay area
+                    # exposes _play_exact_notes (ChordMonitorReplayArea)
+                    if notes and hasattr(self.replay_area, '_play_exact_notes'):
+                        self.replay_area._play_exact_notes(notes)  # type: ignore[attr-defined]
+                    # Otherwise, if the replay area exposes _replay_chord,
+                    # let it derive and play the chord by root/type
+                    elif hasattr(self.replay_area, '_replay_chord'):
+                        self.replay_area._replay_chord(self.root_note, self.chord_type)  # type: ignore[attr-defined]
+                    else:
+                        # Generic fallback for plain ReplayArea: behave like
+                        # before but track playing notes so sustain off works
+                        play_notes = notes or [self.root_note]
+                        velocity = self._get_velocity_for_note()
+                        for note in play_notes:
+                            self.replay_area.midi.note_on(note, velocity, self.replay_area.midi_channel)
+                            if note not in self._playing_notes:
+                                self._playing_notes.append(note)
+                except Exception:
+                    pass
     
     def _play_notes_sustained(self, notes: List[int]) -> None:
         """Play notes without auto-release (for hold functionality)."""
@@ -606,6 +625,8 @@ class ReplayCard(QFrame):
             for note in notes:
                 velocity = self._get_velocity_for_note()
                 self.replay_area.midi.note_on(note, velocity, self.replay_area.midi_channel)
+                if note not in self._playing_notes:
+                    self._playing_notes.append(note)
     
     def _get_velocity_for_note(self) -> int:
         """Get velocity for a single note."""
@@ -625,6 +646,8 @@ class ReplayCard(QFrame):
             return
         velocity = self._get_velocity_for_note()
         self.replay_area.midi.note_on(note, velocity, self.replay_area.midi_channel)
+        if note not in self._playing_notes:
+            self._playing_notes.append(note)
     
     def _cancel_pending_timers(self) -> None:
         """Cancel all pending delayed note timers."""
