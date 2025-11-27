@@ -160,6 +160,214 @@ On first run, Octavium attempts to use `mido` with `python-rtmidi`. If unavailab
 
 
 
+---
+
+# Modulune 🌙
+
+**Generative Impressionistic Piano Engine**
+
+Modulune is Octavium's generative counterpart. While Octavium gives users direct expressive control over MIDI performance, Modulune creates musical intention autonomously—generating continuously evolving piano textures in real time.
+
+## Inspiration
+
+Modulune draws inspiration from the expressive, impressionistic qualities of pieces like Debussy's *Clair de Lune* and the flowing, harmonically rich improvisations of Bill Evans. The goal is not to clone Debussy, nor to produce deterministic compositions, but to create a system that generates music which:
+
+- **Feels alive** — Subtle rubato, velocity variation, and humanized timing
+- **Flows organically** — Harmonic progressions that move smoothly with modal interchange
+- **Never exactly repeats** — Controlled randomness within musical rules
+- **Evokes impressionism** — Extended chords, whole-tone colors, and shimmering textures
+
+## Philosophy: Octavium + Modulune
+
+Together, Octavium and Modulune form a unified ecosystem for musical exploration:
+
+| Octavium | Modulune |
+|----------|----------|
+| The **instrument** | The **player** |
+| Translates human intention into performance | Creates intention on its own |
+| Direct expressive control | Algorithmic creativity |
+| User-driven | System-driven |
+
+Both share the same underlying philosophy: **accessibility**, **experimentation**, and **musical exploration**—allowing anyone, regardless of physical ability or musical training, to produce rich, evolving piano textures either interactively or fully autonomously.
+
+## Features
+
+- **Rule-based generation** — Scales, chords, phrase contours, arpeggios, and harmonic motion
+- **Multiple texture types**:
+  - `impressionist_wash` — Combined flowing textures (default)
+  - `flowing_arpeggios` — Continuous arpeggio patterns
+  - `melodic_fragments` — Melodic lines with sparse accompaniment
+  - `shimmering_chords` — Sustained chord textures
+  - `sparse_meditation` — Contemplative, minimal textures
+  - `layered_voices` — Multiple independent melodic voices
+- **Live MIDI streaming** — Output to any virtual MIDI port (like loopMIDI)
+- **Expressive timing** — Rubato, swing, and humanization
+- **Dynamic modulation** — Automatic key and mode changes
+- **Configurable parameters** — Tempo, density, tension, expressiveness
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.9+
+- Virtual MIDI port (loopMIDI on Windows, IAC Driver on macOS)
+- DAW configured to receive MIDI input
+
+### Installation
+
+Modulune uses the same environment as Octavium:
+
+```bash
+# From the Octavium directory
+python -m venv venv
+venv\Scripts\activate      # Windows
+# source venv/bin/activate  # macOS/Linux
+
+pip install -r requirements.txt
+```
+
+### Running Modulune
+
+```bash
+# Basic usage (default settings)
+python -m modulune.main
+
+# With custom parameters
+python -m modulune.main --tempo 60 --key Db --mode lydian --texture flowing_arpeggios
+
+# List available MIDI ports
+python -m modulune.main --list-ports
+
+# Full example
+python -m modulune.main --tempo 72 --key C --mode major --density 0.5 --tension 0.3 --texture impressionist_wash
+```
+
+### Command Line Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--tempo` | Tempo in BPM | 72 |
+| `--key` | Key root (C, Db, F#, etc.) | C |
+| `--mode` | Scale mode | major |
+| `--density` | Note density (0.0-1.0) | 0.5 |
+| `--tension` | Harmonic tension (0.0-1.0) | 0.3 |
+| `--texture` | Texture type | impressionist_wash |
+| `--expressiveness` | Expression level (0.0-1.0) | 0.6 |
+| `--port` | MIDI port name | auto |
+| `--list-ports` | List available MIDI ports | — |
+
+### Available Modes
+
+`major`, `natural_minor`, `harmonic_minor`, `melodic_minor`, `dorian`, `phrygian`, `lydian`, `mixolydian`, `aeolian`, `locrian`, `whole_tone`, `pentatonic_major`, `pentatonic_minor`, `blues`
+
+## Routing Modulune into a DAW
+
+### Step 1: Create a Virtual MIDI Port
+
+**Windows (loopMIDI):**
+1. Download [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html)
+2. Install and run loopMIDI
+3. Create a new port (e.g., "Modulune Output")
+
+**macOS (IAC Driver):**
+1. Open Audio MIDI Setup
+2. Window → Show MIDI Studio
+3. Double-click IAC Driver
+4. Enable "Device is online"
+5. Add a port named "Modulune Output"
+
+### Step 2: Configure Your DAW
+
+**Ableton Live:**
+1. Preferences → Link/Tempo/MIDI
+2. Enable Track and Remote for "Modulune Output" (or loopMIDI port)
+3. Create a MIDI track
+4. Set "MIDI From" to "Modulune Output"
+5. Arm the track for recording
+6. Add a piano VST (e.g., Piano One, Keyscape, Addictive Keys)
+
+**FL Studio:**
+1. Options → MIDI Settings
+2. Enable the loopMIDI/IAC port as input
+3. Add a piano VST to a channel
+4. Set the channel's MIDI input to the port
+
+**Logic Pro:**
+1. Open Preferences → MIDI
+2. The IAC port should appear automatically
+3. Create a Software Instrument track with a piano
+4. Click the "R" button to record-enable
+
+**Reaper:**
+1. Options → Preferences → MIDI Devices
+2. Enable the virtual MIDI port as input
+3. Create a track with a piano VSTi
+4. Arm for recording and set input to the MIDI port
+
+### Step 3: Start Modulune
+
+```bash
+# Specify the port if needed
+python -m modulune.main --port "loopMIDI Port 1"
+```
+
+The generated MIDI will stream directly into your DAW in real time.
+
+## Programmatic Usage
+
+```python
+from modulune import ModuluneEngine, EngineConfig, TextureType
+from modulune.harmony import ScaleType
+
+# Create custom configuration
+config = EngineConfig(
+    tempo=66.0,
+    key_root=61,  # Db
+    scale_type=ScaleType.LYDIAN,
+    density=0.4,
+    tension=0.2,
+    texture=TextureType.FLOWING_ARPEGGIOS,
+)
+
+# Initialize and start
+engine = ModuluneEngine(config, midi_port="loopMIDI Port 1")
+
+# Register callbacks (optional)
+engine.on_chord_change(lambda chord: print(f"New chord: {chord}"))
+
+engine.start()
+
+# Adjust parameters in real-time
+engine.set_tempo(80)
+engine.set_density(0.7)
+engine.set_texture(TextureType.SPARSE_MEDITATION)
+
+# Stop when done
+engine.stop()
+```
+
+## Architecture
+
+```
+modulune/
+├── __init__.py      # Package exports
+├── main.py          # CLI entry point
+├── engine.py        # Main orchestration engine
+├── harmony.py       # Scales, chords, progressions
+├── melody.py        # Phrase and motif generation
+├── rhythm.py        # Timing and rhythmic patterns
+└── requirements.txt # Dependencies
+```
+
+### Module Overview
+
+- **`engine.py`** — `ModuluneEngine` orchestrates all generation, schedules MIDI events, and streams output
+- **`harmony.py`** — `Scale`, `Chord`, `ChordProgression`, `HarmonyEngine` for harmonic content
+- **`melody.py`** — `Note`, `Phrase`, `MelodyEngine` for melodic lines and arpeggios
+- **`rhythm.py`** — `RhythmEngine`, `RhythmPattern` for timing, rubato, and humanization
+
+---
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

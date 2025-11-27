@@ -1,0 +1,9 @@
+# Modulune requirements
+# Inherits from parent Octavium project, but listed here for clarity
+
+# MIDI handling
+mido>=1.3.2
+python-rtmidi>=1.5.8
+
+# Fallback MIDI backend
+pygame>=2.6.0

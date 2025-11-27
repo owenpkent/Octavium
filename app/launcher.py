@@ -142,6 +142,34 @@ class LauncherWindow(QMainWindow):
         windows_group.setLayout(windows_layout)
         layout.addWidget(windows_group)
         
+        # Generative section
+        generative_group = QGroupBox("Generative")
+        generative_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 16px;
+                font-weight: bold;
+                color: #fff;
+                border: 2px solid #3b4148;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding-top: 12px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        generative_layout = QGridLayout()
+        generative_layout.setSpacing(10)
+        
+        # Modulune button with distinct styling
+        self.btn_modulune = self._create_modulune_button("Modulune", self._launch_modulune)
+        generative_layout.addWidget(self.btn_modulune, 0, 0, 1, 2)
+        
+        generative_group.setLayout(generative_layout)
+        layout.addWidget(generative_group)
+        
         layout.addStretch()
         
         # Apply dark theme
@@ -176,6 +204,33 @@ class LauncherWindow(QMainWindow):
             }
             QPushButton:pressed {
                 background-color: #2f82e6;
+            }
+        """)
+        btn.clicked.connect(callback)
+        return btn
+    
+    def _create_modulune_button(self, text: str, callback) -> QPushButton:
+        """Create a styled button for Modulune with distinct purple styling."""
+        btn = QPushButton(text)
+        btn.setMinimumHeight(60)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2b2a36;
+                border: 2px solid #5b4a78;
+                border-radius: 8px;
+                padding: 12px;
+                color: #d4c4f4;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                border: 2px solid #9b7fd4;
+                background-color: #3a3646;
+            }
+            QPushButton:pressed {
+                background-color: #9b7fd4;
+                color: #1e2127;
             }
         """)
         btn.clicked.connect(callback)
@@ -274,6 +329,21 @@ class LauncherWindow(QMainWindow):
                 self.opened_windows.append(window)
             except Exception as e:
                 print(f"Error launching XY Fader: {e}")
+        else:
+            print("Error: No MIDI output available")
+    
+    def _launch_modulune(self):
+        """Launch Modulune generative engine window."""
+        from modulune.window import ModuluneWindow
+        if self.shared_midi:
+            try:
+                window = ModuluneWindow(self.shared_midi, 0, self)
+                window.show()
+                self.opened_windows.append(window)
+            except Exception as e:
+                print(f"Error launching Modulune: {e}")
+                import traceback
+                traceback.print_exc()
         else:
             print("Error: No MIDI output available")
 
