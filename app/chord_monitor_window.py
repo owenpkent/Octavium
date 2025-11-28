@@ -127,12 +127,20 @@ class ChordMonitorReplayArea(QWidget):
                 if button_index is not None:
                     # Get the chord data
                     data = event.mimeData().text()  # type: ignore
-                    
-                    # Skip rearrange operations - let card handle them
-                    if data.startswith("rearrange:"):
-                        return False
-                    
                     parts = data.split(":")
+                    
+                    # Check if this is a rearrange operation (has slot index in 4th part)
+                    source_slot = None
+                    if len(parts) >= 4 and parts[3] and parts[3].lstrip('-').isdigit():
+                        source_slot = int(parts[3])
+                    
+                    # Handle rearrange operations - move card to empty slot
+                    if source_slot is not None:
+                        self._handle_rearrange_to_empty_slot(button_index, source_slot)
+                        event.setDropAction(Qt.DropAction.MoveAction)  # type: ignore
+                        event.accept()  # type: ignore
+                        return True
+                    
                     root_note_str = parts[0]
                     chord_type = parts[1]
                     root_note = int(root_note_str)
@@ -161,19 +169,63 @@ class ChordMonitorReplayArea(QWidget):
                 return True
         return super().eventFilter(obj, event)  # type: ignore[arg-type]
     
+    def _handle_rearrange_to_empty_slot(self, target_slot: int, source_slot: int) -> None:
+        """Handle moving a card to an empty slot."""
+        try:
+            if source_slot == target_slot:
+                return  # Dropped on itself
+            
+            # Get the card being dragged
+            dragged_card = self.grid_positions[source_slot]
+            if dragged_card is None:
+                return
+            
+            # Remove card from old position
+            self.grid_layout.removeWidget(dragged_card)
+            self.grid_positions[source_slot] = None
+            
+            # Remove placeholder button at target if it exists
+            target_button = self.placeholder_buttons[target_slot]
+            if target_button is not None:
+                target_button.hide()
+                target_button.setParent(None)
+                target_button.deleteLater()
+                self.placeholder_buttons[target_slot] = None
+            
+            # Move card to new position
+            self.grid_positions[target_slot] = dragged_card
+            dragged_card._slot_index = target_slot
+            target_row, target_col = target_slot // 4, target_slot % 4
+            self.grid_layout.addWidget(dragged_card, target_row, target_col)
+            
+            # Create placeholder at old position
+            self._create_placeholder_at(source_slot)
+        except Exception:
+            pass
+
     def _handle_drop_on_button(self, button: QPushButton, event):  # type: ignore
         """Handle a drop event on a specific placeholder button."""
         if not event.mimeData().hasText():  # type: ignore
             return
         
         data = event.mimeData().text()  # type: ignore
+        parts = data.split(":")
         
-        # Check if the drop is a rearrange operation
-        if data.startswith("rearrange:"):
+        # Check if this is a rearrange operation (has slot index in 4th part)
+        source_slot = None
+        if len(parts) >= 4 and parts[3] and parts[3].lstrip('-').isdigit():
+            source_slot = int(parts[3])
+        
+        # Handle rearrange operations - move card to this empty slot
+        if source_slot is not None:
+            try:
+                slot_index = self.placeholder_buttons.index(button)
+                self._handle_rearrange_to_empty_slot(slot_index, source_slot)
+            except ValueError:
+                pass
             return
         
         try:
-            parts = data.split(":")
             root_note_str = parts[0]
             chord_type = parts[1]
             root_note = int(root_note_str)
@@ -700,7 +752,7 @@ class ChordMonitorWindow(QMainWindow):
         vel_slider_layout.addWidget(self.vel_slider)
         
         # Range slider (when randomization is on)
-        self.vel_range = self._RangeSlider(1, 127, low=80, high=110, parent=self)
+        self.vel_range = self._RangeSlider(1, 127, low=64, high=88, parent=self)
         self.vel_range.setFixedWidth(200)
         self.vel_range.setMinimumHeight(22)
         self.vel_range.setFixedHeight(22)
@@ -838,7 +890,7 @@ class ChordMonitorWindow(QMainWindow):
         
         # Randomize checkbox for drift
         self.drift_random_chk = QCheckBox("Randomize")
-        self.drift_random_chk.setChecked(False)
+        self.drift_random_chk.setChecked(True)
         self.drift_random_chk.setStyleSheet("""
             QCheckBox {
                 color: #aaa;
@@ -858,9 +910,9 @@ class ChordMonitorWindow(QMainWindow):
         self.drift_random_chk.toggled.connect(self._toggle_drift_random)
         drift_layout.addWidget(self.drift_random_chk)
         
-        # Initialize visibility
-        self.drift_slider.setVisible(True)   # Show single slider initially (random is off)
-        self.drift_range.setVisible(False)   # Hide range slider
+        # Initialize visibility (randomize is on by default)
+        self.drift_slider.setVisible(False)  # Hide single slider initially (random is on)
+        self.drift_range.setVisible(True)    # Show range slider
         
         drift_layout.addStretch()
         humanize_layout.addLayout(drift_layout)
@@ -906,7 +958,7 @@ class ChordMonitorWindow(QMainWindow):
         spacing = 10
         margins = 20
         width = (btn_size * 4) + (spacing * 3) + margins + 80  # 4 columns + extra width for controls
-        height = (btn_size * 4) + (spacing * 3) + margins + 220  # 4 rows + header + humanize section
+        height = (btn_size * 4) + (spacing * 3) + margins + 260  # 4 rows + header + humanize section + extra padding
         self.resize(width, height)
         self.setMinimumSize(width, height)
     

@@ -9,6 +9,135 @@ from .scale import quantize
 from .chord_selector import detect_chord, NOTES
 
 
+class ChordDropTarget(QFrame):
+    """A drop target for chord cards that highlights when dragging over it."""
+    def __init__(self, keyboard_widget: 'KeyboardWidget', parent: QWidget = None):
+        super().__init__(parent)
+        self.keyboard_widget = keyboard_widget
+        self._drag_over = False
+        self.setAcceptDrops(True)
+        self.setFrameShape(QFrame.Box)
+        self._update_style()
+    
+    def _update_style(self):
+        """Update the visual style based on drag state."""
+        if self._drag_over:
+            self.setStyleSheet("""
+                ChordDropTarget {
+                    background-color: #2a3a4a;
+                    border: 2px dashed #4fa3ff;
+                    border-radius: 6px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                ChordDropTarget {
+                    background-color: transparent;
+                    border: 1px dashed #3b4148;
+                    border-radius: 6px;
+                }
+            """)
+    
+    def dragEnterEvent(self, event):  # type: ignore[override]
+        """Accept chord card drops."""
+        if event.mimeData().hasText():
+            data = event.mimeData().text()
+            # Accept chord cards (format: "root:type:notes")
+            if ":" in data and not data.startswith("rearrange:"):
+                event.setDropAction(Qt.CopyAction)
+                event.accept()
+                self._drag_over = True
+                self._update_style()
+                return
+        event.ignore()
+    
+    def dragLeaveEvent(self, event):  # type: ignore[override]
+        """Clear highlight when drag leaves."""
+        self._drag_over = False
+        self._update_style()
+        super().dragLeaveEvent(event)
+    
+    def dragMoveEvent(self, event):  # type: ignore[override]
+        """Continue accepting during drag."""
+        if event.mimeData().hasText():
+            data = event.mimeData().text()
+            if ":" in data and not data.startswith("rearrange:"):
+                event.setDropAction(Qt.CopyAction)
+                event.accept()
+                return
+        event.ignore()
+    
+    def dropEvent(self, event):  # type: ignore[override]
+        """Handle dropped chord card - latch those notes on the keyboard."""
+        self._drag_over = False
+        self._update_style()
+        
+        if not event.mimeData().hasText():
+            return
+        
+        data = event.mimeData().text()
+        
+        # Skip rearrange operations
+        if data.startswith("rearrange:"):
+            return
+        
+        try:
+            parts = data.split(":")
+            if len(parts) < 2:
+                return
+            
+            # Parse actual notes if present (format: "root:type:note1,note2,note3")
+            actual_notes = None
+            if len(parts) >= 3 and parts[2]:
+                try:
+                    actual_notes = [int(n) for n in parts[2].split(",") if n.strip()]
+                except (ValueError, AttributeError):
+                    actual_notes = None
+            
+            if actual_notes and self.keyboard_widget:
+                # First, turn off any currently latched notes
+                self.keyboard_widget._perform_all_notes_off()
+                
+                # Calculate the total octave offset (base_octave + user octave_offset)
+                total_octave_offset = (
+                    self.keyboard_widget.layout_model.base_octave + 
+                    self.keyboard_widget.octave_offset
+                )
+                
+                # Latch each note from the chord
+                for note in actual_notes:
+                    # Find the base note (without octave offset) for this MIDI note
+                    # effective_note = base_note + 12 * (base_octave + octave_offset)
+                    # So: base_note = effective_note - 12 * (base_octave + octave_offset)
+                    base_note = note - (12 * total_octave_offset)
+                    ch = self.keyboard_widget.midi_channel
+                    
+                    # Check if this note is already active
+                    if (note, ch) not in self.keyboard_widget.active_notes:
+                        # Turn on the note
+                        vel = self.keyboard_widget._compute_velocity(100)
+                        try:
+                            self.keyboard_widget.midi.note_on(note, vel, ch)
+                        except Exception:
+                            pass
+                        self.keyboard_widget.active_notes.add((note, ch))
+                        self.keyboard_widget._voice_order.append((note, ch, base_note))
+                        self.keyboard_widget._last_played_note = note
+                        
+                        # Apply held visual to the key if it exists
+                        if base_note in self.keyboard_widget.key_buttons:
+                            self.keyboard_widget._apply_note_visual(base_note, True, True)
+                
+                # Update chord card display
+                if getattr(self.keyboard_widget, 'chord_monitor', False):
+                    self.keyboard_widget._update_chord_card()
+                
+                event.setDropAction(Qt.CopyAction)
+                event.accept()
+        except Exception:
+            pass
+
+
 class KeyboardChordCard(QFrame):
     """A draggable chord card shown on the keyboard when latch is on."""
     def __init__(self, root_note: int, chord_type: str, actual_notes: list[int] = None, parent: QWidget = None):
@@ -320,6 +449,7 @@ class KeyboardWidget(QWidget):
         self.chord_monitor = True  # Enable chord detection and display by default
         self.visual_hold_on_sustain = False  # whether sustained notes keep visual down state
         self.drag_while_sustain = True  # whether to allow dragging while sustain is active
+        self.right_click_latch = True  # whether right-click acts as latch toggle (enabled by default)
         self.vel_curve = "linear"
         self.active_notes: set[tuple[int,int]] = set()
         # Polyphony control
@@ -615,8 +745,9 @@ class KeyboardWidget(QWidget):
         header_row1.addWidget(self.oct_label)
         header_row1.addWidget(self.oct_plus_btn)
         # Chord card (shown when chord monitor is on and chord is detected)
+        # Also serves as drop target for editing chords from Chord Monitor
         self.current_chord_card: Optional[QFrame] = None
-        self.chord_card_container = QWidget()
+        self.chord_card_container = ChordDropTarget(self)
         # Always keep container at fixed size to prevent UI shifting
         # Card is 30px + 2px border top + 2px border bottom = 34px, plus extra bottom margin for clearance
         self.chord_card_container.setFixedSize(140, 36)
@@ -974,6 +1105,13 @@ class KeyboardWidget(QWidget):
         except Exception:
             pass
 
+        # Install event filter on all key buttons for right-click latch support
+        try:
+            for btn in self.key_buttons.values():
+                btn.installEventFilter(self)
+        except Exception:
+            pass
+
         # Set the container width to the exact right edge of remaining keys (no padding)
         try:
             if self.key_buttons:
@@ -1314,6 +1452,41 @@ class KeyboardWidget(QWidget):
             if self.last_drag_button is not None:
                 self.last_drag_button = None
 
+    def on_key_right_click(self, base_note: int):
+        """Handle right-click on a key as a latch toggle (independent of global latch mode)."""
+        note = self.effective_note(base_note)
+        ch = self.midi_channel
+        if (note, ch) in self.active_notes:
+            # Note is already active - turn it off
+            try:
+                self.midi.note_off(note, ch)
+            except Exception:
+                pass
+            self.active_notes.discard((note, ch))
+            try:
+                # remove from voice order
+                for i, (n, c, b) in enumerate(list(self._voice_order)):
+                    if n == note and c == ch:
+                        self._voice_order.pop(i)
+                        break
+            except Exception:
+                pass
+            self._apply_note_visual(base_note, False, False)
+        else:
+            # Note is not active - turn it on and latch it
+            vel = self._compute_velocity(100)
+            try:
+                self.midi.note_on(note, vel, ch)
+            except Exception:
+                pass
+            self.active_notes.add((note, ch))
+            self._voice_order.append((note, ch, base_note))
+            self._last_played_note = note
+            self._apply_note_visual(base_note, True, True)  # held state for latched notes
+        # Update chord card if chord monitor is on
+        if getattr(self, 'chord_monitor', False):
+            self._update_chord_card()
+
     def eventFilter(self, obj, event):
         """Global event filter to handle drag across child buttons reliably."""
         # If leaving a key while dragging, ensure its active visual is cleared immediately
@@ -1328,6 +1501,15 @@ class KeyboardWidget(QWidget):
                         pass
         except Exception:
             pass
+        # Handle right-click latch on key buttons
+        if getattr(self, 'right_click_latch', False):
+            try:
+                if event.type() == QEvent.MouseButtonPress and isinstance(obj, QPushButton) and hasattr(obj, 'key_note'):
+                    if event.button() == Qt.RightButton:
+                        self.on_key_right_click(obj.key_note)
+                        return True  # consume the event
+            except Exception:
+                pass
         # Maintain explicit hover state on the key under the cursor
         try:
             if obj is getattr(self, 'piano_container', None) and event.type() == QEvent.MouseMove:

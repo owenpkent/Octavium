@@ -440,26 +440,41 @@ class ReplayCard(QFrame):
         data = event.mimeData().text()
         try:
             parts = data.split(":")
-            if len(parts) >= 2 and parts[0] == "rearrange":
-                # Rearrange cards
-                slot_info = parts[1]
-                if slot_info.isdigit():
-                    slot_idx = int(slot_info)
-                    if hasattr(self.replay_area, 'grid_positions'):
-                        # Swap cards
-                        if self.replay_area.grid_positions[slot_idx] is not None and self.replay_area.grid_positions[self._slot_index] is not None:
-                            self.replay_area.grid_positions[slot_idx], self.replay_area.grid_positions[self._slot_index] = self.replay_area.grid_positions[self._slot_index], self.replay_area.grid_positions[slot_idx]
-                            # Update slot indices
-                            self._slot_index, self.replay_area.grid_positions[slot_idx]._slot_index = slot_idx, self._slot_index
-                            # Update grid layout
-                            self.replay_area.grid_layout.removeWidget(self.replay_area.grid_positions[slot_idx])
-                            self.replay_area.grid_layout.removeWidget(self)
-                            row = self._slot_index // 4
-                            col = self._slot_index % 4
-                            self.replay_area.grid_layout.addWidget(self, row, col)
-                            row = slot_idx // 4
-                            col = slot_idx % 4
-                            self.replay_area.grid_layout.addWidget(self.replay_area.grid_positions[slot_idx], row, col)
+            # Format: "root:type:notes:slot_index" (4 parts with slot at end for rearranging)
+            # Check if this is a rearrange operation (has slot index in 4th part)
+            source_slot = None
+            if len(parts) >= 4 and parts[3] and parts[3].lstrip('-').isdigit():
+                source_slot = int(parts[3])
+            
+            if source_slot is not None and hasattr(self.replay_area, 'grid_positions'):
+                # Rearrange cards: swap dragged card with this card
+                target_slot = self._slot_index  # Where it's being dropped (this card's slot)
+                
+                if source_slot == target_slot:
+                    return  # Dropped on itself, nothing to do
+                
+                if hasattr(self.replay_area, 'grid_layout'):
+                    dragged_card = self.replay_area.grid_positions[source_slot]
+                    target_card = self  # The card receiving the drop
+                    
+                    if dragged_card is not None and target_card is not None:
+                        # Remove both cards from layout
+                        self.replay_area.grid_layout.removeWidget(dragged_card)
+                        self.replay_area.grid_layout.removeWidget(target_card)
+                        
+                        # Swap in grid_positions
+                        self.replay_area.grid_positions[source_slot] = target_card
+                        self.replay_area.grid_positions[target_slot] = dragged_card
+                        
+                        # Update slot indices on the cards themselves
+                        dragged_card._slot_index = target_slot
+                        target_card._slot_index = source_slot
+                        
+                        # Re-add to layout at swapped positions
+                        source_row, source_col = source_slot // 4, source_slot % 4
+                        target_row, target_col = target_slot // 4, target_slot % 4
+                        self.replay_area.grid_layout.addWidget(target_card, source_row, source_col)
+                        self.replay_area.grid_layout.addWidget(dragged_card, target_row, target_col)
             else:
                 # Replace this card with the dropped chord
                 root_note_str = parts[0]
@@ -514,18 +529,23 @@ class ReplayCard(QFrame):
             self._should_play = True
     
     def mouseMoveEvent(self, event):  # type: ignore[override]
-        """Handle drag-to-rearrange when dragging card to another slot."""
+        """Handle drag-to-rearrange when dragging card to another slot, or drag to keyboard for editing."""
         if not (event.buttons() & Qt.MouseButton.LeftButton):
             return
         if (event.pos() - self._drag_start_position).manhattanLength() < 15:
             return
         
-        # Start drag operation for rearranging
+        # Start drag operation
         drag = QDrag(self)
         mime_data = QMimeData()
-        # Include slot index so we know where it came from
-        slot_info = f"rearrange:{self._slot_index}"
-        mime_data.setText(slot_info)
+        # Send chord data (root:type:notes:slot) - can be used for both editing and rearranging
+        # Format: "root:type:note1,note2,note3:slot_index"
+        if self.actual_notes:
+            notes_str = ",".join(str(n) for n in self.actual_notes)
+            chord_data = f"{self.root_note}:{self.chord_type}:{notes_str}:{self._slot_index}"
+        else:
+            chord_data = f"{self.root_note}:{self.chord_type}::{self._slot_index}"
+        mime_data.setText(chord_data)
         drag.setMimeData(mime_data)
         
         # Create a pixmap for drag preview

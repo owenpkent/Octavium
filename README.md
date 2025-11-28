@@ -16,12 +16,16 @@ An accessibility-first, mouse‑driven virtual MIDI keyboard for making music wi
 - **Sustain and Latch**:
   - Sustain keeps notes sounding; visuals clear on click release so you always see what you touched
   - Latch toggles notes on press; pressing again releases. When changing octaves, visuals shift position while the sounding notes do not change
+  - **Right-Click Latch**: Enabled by default - right-click any key to toggle latch on that note while using regular clicks for normal notes
 - **Velocity control**: Slider with linear/soft/hard response curves
 - **Scale quantization**: Optionally snap to scales (chromatic by default) to avoid wrong notes
 - **Octave controls**: Buttons and shortcuts for quick visual range shifts
 - **Polyphony options**: Limit voices or run unlimited
 - **MIDI routing**: Choose output port and channel
-- **Chord Monitor**: Hold-to-play chord cards with humanize controls (velocity and drift randomization)
+- **Chord Monitor**: 
+  - Hold-to-play chord cards with humanize controls (velocity and drift randomization)
+  - **Drag-and-drop rearranging**: Drag cards to swap positions or move to empty slots
+  - **Drag-to-edit**: Drag a card to the keyboard's chord display area to load and edit the chord, then drag back to save
 
 ## Quick Start
 

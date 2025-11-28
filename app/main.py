@@ -273,6 +273,19 @@ class MainWindow(QMainWindow):
                 pass
         drag_while_sustain.triggered.connect(_toggle_drag_while_sustain)
         view_menu.addAction(drag_while_sustain)
+        # Right-Click Latch option (enabled by default)
+        right_click_latch = QAction("Right-Click Latch", self)
+        right_click_latch.setCheckable(True)
+        right_click_latch.setChecked(bool(self.menu_actions.get('right_click_latch_checked', True)))
+        def _toggle_right_click_latch(checked: bool):
+            try:
+                self.keyboard.right_click_latch = checked  # type: ignore[attr-defined]
+                # Persist the checked state
+                self.menu_actions['right_click_latch_checked'] = checked
+            except Exception:
+                pass
+        right_click_latch.triggered.connect(_toggle_right_click_latch)
+        view_menu.addAction(right_click_latch)
         # Persist
         self.menu_actions['show_mod'] = show_mod.isChecked()
         self.menu_actions['show_pitch'] = show_pitch.isChecked()
@@ -281,6 +294,7 @@ class MainWindow(QMainWindow):
         self.menu_actions['visual_hold'] = visual_hold
         self.menu_actions['chord_monitor'] = chord_monitor
         self.menu_actions['drag_while_sustain'] = drag_while_sustain
+        self.menu_actions['right_click_latch'] = right_click_latch
         # Apply current selections
         try:
             self._apply_show_mod_wheel(show_mod.isChecked())
@@ -288,6 +302,11 @@ class MainWindow(QMainWindow):
             # Apply visual hold default (unchecked) or previous
             try:
                 self.keyboard.visual_hold_on_sustain = visual_hold.isChecked()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            # Apply right-click latch default (unchecked) or previous
+            try:
+                self.keyboard.right_click_latch = right_click_latch.isChecked()  # type: ignore[attr-defined]
             except Exception:
                 pass
             # Inline chord display is always on by default (keyboard.chord_monitor = True)
