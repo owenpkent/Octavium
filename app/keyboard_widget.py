@@ -452,6 +452,7 @@ class KeyboardWidget(QWidget):
         self.right_click_latch = True  # whether right-click acts as latch toggle (enabled by default)
         self.vel_curve = "linear"
         self.active_notes: set[tuple[int,int]] = set()
+        self._right_click_latched: set[tuple[int,int]] = set()  # Notes latched via right-click
         # Polyphony control
         self.polyphony_enabled: bool = False
         self.polyphony_max: int = 8
@@ -625,8 +626,8 @@ class KeyboardWidget(QWidget):
         self.vel_slider = QSlider(Qt.Horizontal)  # single value slider
         self.vel_slider.setMinimum(1)
         self.vel_slider.setMaximum(127)
-        self.vel_slider.setValue(100)
-        self.vel_range = RangeSlider(1, 127, low=80, high=110, parent=self)
+        self.vel_slider.setValue(80)
+        self.vel_range = RangeSlider(1, 127, low=64, high=88, parent=self)
         self.vel_range.setVisible(False)
         self.vel_random_chk.toggled.connect(self._toggle_vel_random)
         # Default to randomized velocity enabled
@@ -1299,10 +1300,15 @@ class KeyboardWidget(QWidget):
         self._apply_btn_visual(btn, down, held)
 
     def _clear_all_key_visuals_except(self, except_btn: QPushButton | None):
-        """Clear active/held visuals from every key except the provided one."""
+        """Clear active/held visuals from every key except the provided one and right-click latched notes."""
         try:
-            for b in self.key_buttons.values():
+            ch = self.midi_channel
+            for base_note, b in self.key_buttons.items():
                 if b is except_btn:
+                    continue
+                # Don't clear visuals for right-click latched notes
+                eff = self.effective_note(base_note)
+                if (eff, ch) in self._right_click_latched:
                     continue
                 self._apply_btn_visual(b, False, False)
         except Exception:
@@ -1463,6 +1469,7 @@ class KeyboardWidget(QWidget):
             except Exception:
                 pass
             self.active_notes.discard((note, ch))
+            self._right_click_latched.discard((note, ch))  # Remove from right-click latched set
             try:
                 # remove from voice order
                 for i, (n, c, b) in enumerate(list(self._voice_order)):
@@ -1480,6 +1487,7 @@ class KeyboardWidget(QWidget):
             except Exception:
                 pass
             self.active_notes.add((note, ch))
+            self._right_click_latched.add((note, ch))  # Track as right-click latched
             self._voice_order.append((note, ch, base_note))
             self._last_played_note = note
             self._apply_note_visual(base_note, True, True)  # held state for latched notes
@@ -1587,15 +1595,22 @@ class KeyboardWidget(QWidget):
                     current_note = self.effective_note(base)
                     prev_eff = self.effective_note(self._last_drag_note_base) if self._last_drag_note_base is not None else None
                     if prev_eff is None or current_note != prev_eff:
-                        # Stop previous note if any
+                        # Stop previous note if any (but not if it's a right-click latched note)
                         if self._last_drag_note_base is not None and not self.sustain and not getattr(self, 'latch', False):
                             prev_note = prev_eff  # computed above
                             ch = self.midi_channel
-                            self.midi.note_off(prev_note, ch)
-                            self.active_notes.discard((prev_note, ch))
-                        # Update previous button visual (always clear during drag)
+                            # Don't turn off right-click latched notes
+                            if (prev_note, ch) not in self._right_click_latched:
+                                self.midi.note_off(prev_note, ch)
+                                self.active_notes.discard((prev_note, ch))
+                        # Update previous button visual (but preserve right-click latched visuals)
                         if self.last_drag_button is not None and self.last_drag_button is not widget_under:
-                            self._apply_btn_visual(self.last_drag_button, False, False)
+                            prev_base = getattr(self.last_drag_button, 'key_note', None)
+                            if prev_base is not None:
+                                prev_eff_note = self.effective_note(prev_base)
+                                ch = self.midi_channel
+                                if (prev_eff_note, ch) not in self._right_click_latched:
+                                    self._apply_btn_visual(self.last_drag_button, False, False)
                             try:
                                 self.last_drag_button.setProperty('hoveroff', 'true')
                                 st3 = self.last_drag_button.style()
@@ -1631,11 +1646,18 @@ class KeyboardWidget(QWidget):
                     if self._last_drag_note_base is not None and not self.sustain and not getattr(self, 'latch', False):
                         prev_note = self.effective_note(self._last_drag_note_base)
                         ch = self.midi_channel
-                        self.midi.note_off(prev_note, ch)
-                        self.active_notes.discard((prev_note, ch))
+                        # Don't turn off right-click latched notes
+                        if (prev_note, ch) not in self._right_click_latched:
+                            self.midi.note_off(prev_note, ch)
+                            self.active_notes.discard((prev_note, ch))
                     if self.last_drag_button is not None:
-                        # Always clear visual during drag when not over any key
-                        self._apply_btn_visual(self.last_drag_button, False, False)
+                        # Clear visual during drag when not over any key (but preserve right-click latched)
+                        prev_base = getattr(self.last_drag_button, 'key_note', None)
+                        if prev_base is not None:
+                            prev_eff_note = self.effective_note(prev_base)
+                            ch = self.midi_channel
+                            if (prev_eff_note, ch) not in self._right_click_latched:
+                                self._apply_btn_visual(self.last_drag_button, False, False)
                         # Keep hover suppressed during drag to avoid ghost hover until drag end
                         try:
                             self.last_drag_button.setProperty('hoveroff', 'true')
@@ -1663,11 +1685,21 @@ class KeyboardWidget(QWidget):
                 if self._last_drag_note_base is not None and not self.sustain and not getattr(self, 'latch', False):
                     note = self.effective_note(self._last_drag_note_base)
                     ch = self.midi_channel
-                    self.midi.note_off(note, ch)
-                    self.active_notes.discard((note, ch))
+                    # Don't turn off right-click latched notes
+                    if (note, ch) not in self._right_click_latched:
+                        self.midi.note_off(note, ch)
+                        self.active_notes.discard((note, ch))
                 # On drag-release: only latch keeps visuals held; sustain clears visuals
+                # But always preserve right-click latched visuals
                 if self.last_drag_button is not None:
-                    if getattr(self, 'latch', False):
+                    last_base = getattr(self.last_drag_button, 'key_note', None)
+                    is_right_click_latched = False
+                    if last_base is not None:
+                        last_eff = self.effective_note(last_base)
+                        ch = self.midi_channel
+                        is_right_click_latched = (last_eff, ch) in self._right_click_latched
+                    
+                    if getattr(self, 'latch', False) or is_right_click_latched:
                         self._apply_btn_visual(self.last_drag_button, True, True)
                     else:
                         self._apply_btn_visual(self.last_drag_button, False, False)
@@ -1911,15 +1943,20 @@ class KeyboardWidget(QWidget):
             pass
 
     def _clear_other_actives(self, except_btn: QPushButton | None):
-        """Ensure only except_btn (if any) is visually active. Clear all others."""
+        """Ensure only except_btn (if any) is visually active. Clear all others except right-click latched."""
         try:
-            for b in self.key_buttons.values():
+            ch = self.midi_channel
+            for base_note, b in self.key_buttons.items():
                 if b is except_btn:
                     # Ensure it stays active
                     if b.property('active') != 'true':
                         self._apply_btn_visual(b, True, False)
                     continue
-                # Unconditionally clear both active and held for all others
+                # Don't clear right-click latched notes
+                eff = self.effective_note(base_note)
+                if (eff, ch) in self._right_click_latched:
+                    continue
+                # Clear both active and held for all others
                 self._apply_btn_visual(b, False, False)
                 # Also clear any explicit hovered state on others
                 try:

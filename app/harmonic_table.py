@@ -37,13 +37,32 @@ import random
 
 
 class HexButton(QPushButton):
-    """Custom painted hexagonal button in the app's blue theme."""
-    def __init__(self, label: str, size_px: int, parent=None):
+    """Custom painted hexagonal button in the app's blue theme with octave-based colors."""
+    
+    # Octave color palette - distinct colors per octave for visual clarity
+    # Format: (fill_color, border_color)
+    OCTAVE_COLORS = [
+        ('#1a1a2e', '#2d2d4a'),  # -1: Deep navy
+        ('#1e2a3a', '#2f4562'),  # 0: Dark slate blue
+        ('#1a2f2f', '#2d4a4a'),  # 1: Dark teal
+        ('#1f2d1f', '#334a33'),  # 2: Dark forest
+        ('#2a2a1e', '#454530'),  # 3: Dark olive
+        ('#2d2424', '#4a3838'),  # 4: Dark burgundy (middle C area)
+        ('#2d1f2d', '#4a334a'),  # 5: Dark plum
+        ('#1f1f2d', '#33334a'),  # 6: Dark indigo
+        ('#1a2a2a', '#2d4545'),  # 7: Dark cyan
+        ('#2a1f1a', '#45332d'),  # 8: Dark brown
+        ('#1f2a1f', '#334533'),  # 9: Dark sage
+    ]
+    
+    def __init__(self, label: str, size_px: int, parent=None, note: int = 60):
         super().__init__(label, parent)
         # Non-latching (momentary) behavior by default
         self.setCheckable(False)
         # Visual latch flag managed by owner widget
         self._latched: bool = False
+        self._active: bool = False  # For duplicate note highlighting
+        self._note: int = note  # Store the MIDI note for octave coloring
         self._size = int(size_px)
         self.setCursor(Qt.PointingHandCursor)
         self.setFlat(True)
@@ -108,24 +127,40 @@ class HexButton(QPushButton):
         path.closeSubpath()
         return path
 
+    def _get_octave_colors(self) -> tuple[str, str]:
+        """Get fill and border colors based on the note's octave."""
+        try:
+            octave = (self._note // 12) - 1  # MIDI octave (-1 to 9)
+            idx = max(0, min(len(self.OCTAVE_COLORS) - 1, octave + 1))
+            return self.OCTAVE_COLORS[idx]
+        except Exception:
+            return ('#1b1f24', '#3b4148')
+    
     def paintEvent(self, ev):  # type: ignore[override]
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         path = self._hex_path()
-        # Background: show active style when pressed OR latched
-        if self.isDown() or getattr(self, "_latched", False):
+        
+        # Background: show active style when pressed, latched, or duplicate-highlighted
+        is_active = self.isDown() or getattr(self, "_latched", False) or getattr(self, "_active", False)
+        
+        if is_active:
             fill = QColor('#2f82e6')
             text = QColor('white')
             border = QColor('#61b3ff')
         else:
-            fill = QColor('#1b1f24')
+            # Use octave-based coloring for inactive state
+            fill_hex, border_hex = self._get_octave_colors()
+            fill = QColor(fill_hex)
             text = QColor('#cfe7ff')
-            border = QColor('#3b4148')
+            border = QColor(border_hex)
+        
         p.fillPath(path, QBrush(fill))
         pen = QPen(border)
-        pen.setWidth(1)
+        pen.setWidth(2 if is_active else 1)
         p.setPen(pen)
         p.drawPath(path)
+        
         # Label with dynamic font sizing relative to hex width
         p.setPen(text)
         try:
@@ -293,15 +328,15 @@ class HarmonicTableWidget(QWidget):
         except Exception:
             self._all_off_btn_base_qss = ""
 
-        # Velocity controls: single slider and randomized range
+        # Velocity controls: single slider and randomized range (lowered by 20% to match keyboard)
         self.vel_label = QLabel("Velocity")
         self.vel_slider = QSlider(Qt.Horizontal)
         self.vel_slider.setMinimum(1)
         self.vel_slider.setMaximum(127)
-        self.vel_slider.setValue(100)
+        self.vel_slider.setValue(80)
         self.vel_random_chk = QCheckBox("Randomize")
         self.vel_random_chk.setChecked(True)
-        self.vel_range = RangeSlider(1, 127, low=80, high=110, parent=self)
+        self.vel_range = RangeSlider(1, 127, low=64, high=88, parent=self)
         # Toggle behavior like the piano header
         try:
             self.vel_random_chk.toggled.connect(lambda checked: self._toggle_vel_random(checked))
@@ -524,6 +559,11 @@ class HarmonicTableWidget(QWidget):
         # Cache for resize-to-fit to avoid thrashing
         self._last_fit_key: tuple[int, int, int, int, int] | None = None
 
+        # Build a map of note -> list of buttons for duplicate highlighting
+        self._note_to_buttons: dict[int, list[HexButton]] = {}
+        # Track right-click latched notes separately
+        self._right_click_latched: set[int] = set()
+        
         for r in range(self.rows):
             row_btns: list[QPushButton] = []
             row_notes: list[int] = []
@@ -531,7 +571,7 @@ class HarmonicTableWidget(QWidget):
                 note = self.notes[r][q]
                 row_notes.append(note)
                 label = self._note_name(note) if (note is not None and 0 <= note <= 127) else ""
-                b = HexButton(label, self._hex_size_px, grid)
+                b = HexButton(label, self._hex_size_px, grid, note=note if note is not None else 60)
                 # centers (flat-top, odd-q offset rectangle)
                 s = self._hex_size_px / 2.0
                 cx = s * 1.5 * q
@@ -557,6 +597,10 @@ class HarmonicTableWidget(QWidget):
                     b.pressed.connect(lambda r=r, q=q: self._handle_press(r, q))
                     b.released.connect(lambda r=r, q=q: self._handle_release(r, q))
                     b.setEnabled(True)
+                    # Add to note->buttons map for duplicate highlighting
+                    if note not in self._note_to_buttons:
+                        self._note_to_buttons[note] = []
+                    self._note_to_buttons[note].append(b)
                 else:
                     b.setEnabled(False)
                 row_btns.append(b)
@@ -755,6 +799,8 @@ class HarmonicTableWidget(QWidget):
             self._active_notes.add(int(note))
         except Exception:
             pass
+        # Highlight all duplicate buttons for this note
+        self._set_note_active(note, True)
 
     def _send_note_off(self, note: int):
         try:
@@ -764,6 +810,49 @@ class HarmonicTableWidget(QWidget):
         self._active_notes.discard(int(note))
         self._sustained_notes.discard(int(note))
         self._latched_notes.discard(int(note))
+        # Unhighlight all duplicate buttons for this note (unless right-click latched)
+        if note not in self._right_click_latched:
+            self._set_note_active(note, False)
+    
+    def _set_note_active(self, note: int, active: bool):
+        """Set the _active flag on all buttons for a given note (for duplicate highlighting)."""
+        try:
+            buttons = self._note_to_buttons.get(note, [])
+            for btn in buttons:
+                btn._active = active
+                btn.update()
+        except Exception:
+            pass
+    
+    def _handle_right_click(self, r: int, c: int):
+        """Handle right-click on a hex as a latch toggle (independent of global latch mode)."""
+        try:
+            note = int(self.notes[r][c])
+        except Exception:
+            return
+        
+        btn = self.buttons[r][c]
+        
+        if note in self._right_click_latched:
+            # Note is already latched - turn it off
+            self._send_note_off(note)
+            self._right_click_latched.discard(note)
+            self._set_note_active(note, False)
+            try:
+                btn._latched = False
+                btn.update()
+            except Exception:
+                pass
+        else:
+            # Note is not latched - turn it on and latch it
+            self._send_note_on(note)
+            self._right_click_latched.add(note)
+            self._set_note_active(note, True)
+            try:
+                btn._latched = True
+                btn.update()
+            except Exception:
+                pass
 
     def toggle_sustain(self):
         try:
@@ -805,6 +894,7 @@ class HarmonicTableWidget(QWidget):
             notes_to_stop |= set(self._active_notes)
             notes_to_stop |= set(self._sustained_notes)
             notes_to_stop |= set(self._latched_notes)
+            notes_to_stop |= set(self._right_click_latched)
         except Exception:
             pass
         for n in list(notes_to_stop):
@@ -821,12 +911,14 @@ class HarmonicTableWidget(QWidget):
         self._active_notes.clear()
         self._sustained_notes.clear()
         self._latched_notes.clear()
+        self._right_click_latched.clear()
         # Clear visuals and drag state
         try:
             for row in self.buttons:
                 for btn in row:
                     try:
                         btn._latched = False
+                        btn._active = False
                     except Exception:
                         pass
                     btn.setDown(False)
@@ -985,6 +1077,18 @@ class HarmonicTableWidget(QWidget):
         # Handle events originating from the grid or any child button
         if obj is getattr(self, "_grid", None) or isinstance(obj, QPushButton):
             et = ev.type()
+            
+            # Handle right-click for latch toggle
+            if et == QEvent.MouseButtonPress and isinstance(obj, QPushButton):
+                try:
+                    if ev.button() == Qt.RightButton:
+                        coords = getattr(obj, "_rq", None)
+                        if coords is not None:
+                            self._handle_right_click(coords[0], coords[1])
+                            return True  # consume the event
+                except Exception:
+                    pass
+            
             if et == QEvent.MouseMove and self.drag_active:
                 # Resolve cursor position in grid coordinates regardless of source
                 try:

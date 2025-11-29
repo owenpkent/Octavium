@@ -3,7 +3,8 @@ import traceback
 from datetime import datetime
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QMenu, QInputDialog, QMessageBox,
-    QDialog, QDialogButtonBox, QFormLayout, QComboBox, QLabel, QWidget
+    QDialog, QDialogButtonBox, QFormLayout, QComboBox, QLabel, QWidget,
+    QVBoxLayout, QScrollArea, QPushButton
 )
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QPixmap, QShortcut, QKeySequence
 from pathlib import Path
@@ -548,9 +549,21 @@ class MainWindow(QMainWindow):
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
+        
+        user_guide = QAction("User Guide", self)
+        user_guide.triggered.connect(self.show_user_guide)
+        help_menu.addAction(user_guide)
+        
         kb_shortcuts = QAction("Keyboard Shortcuts", self)
         kb_shortcuts.triggered.connect(self.show_keyboard_shortcuts)
         help_menu.addAction(kb_shortcuts)
+        
+        chord_monitor_help = QAction("Chord Monitor Help", self)
+        chord_monitor_help.triggered.connect(self.show_chord_monitor_help)
+        help_menu.addAction(chord_monitor_help)
+        
+        help_menu.addSeparator()
+        
         about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about_dialog)
         help_menu.addAction(about_action)
@@ -1092,8 +1105,229 @@ class MainWindow(QMainWindow):
             "Mouse:\n"
             "- Click keys to play\n"
             "- Click and drag across keys to glide\n"
+            "- Right-click a key to toggle latch on that note\n"
         )
         QMessageBox.information(self, "Keyboard Shortcuts", text)
+    
+    def show_user_guide(self):
+        """Show comprehensive user guide dialog."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Octavium User Guide")
+        dialog.setMinimumSize(700, 600)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Create scrollable text area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
+        
+        content = QLabel()
+        content.setWordWrap(True)
+        content.setTextFormat(Qt.TextFormat.RichText)
+        content.setStyleSheet("padding: 20px; background: white; color: #222;")
+        content.setAlignment(Qt.AlignmentFlag.AlignTop)
+        
+        guide_html = """
+        <h1 style="color: #2f82e6;">Octavium User Guide</h1>
+        
+        <h2>Overview</h2>
+        <p>Octavium is an accessibility-first, mouse-driven virtual MIDI keyboard. 
+        It's designed for creators who primarily use a mouse, including users with motor disabilities.</p>
+        
+        <h2>Getting Started</h2>
+        <p>When you launch Octavium, you'll see the <b>Launcher Window</b> with options to open:</p>
+        <ul>
+            <li><b>Keyboards:</b> 25-key, 49-key, 61-key pianos, and Harmonic Table</li>
+            <li><b>Windows:</b> Chord Monitor, Pad Grid, Faders, and XY Fader</li>
+        </ul>
+        <p>You can open multiple keyboards and windows simultaneously.</p>
+        
+        <h2>Playing Notes</h2>
+        <ul>
+            <li><b>Click</b> a key to play it</li>
+            <li><b>Click and drag</b> across keys to glide between notes</li>
+            <li><b>Right-click</b> a key to toggle latch on that specific note (enabled by default)</li>
+        </ul>
+        
+        <h2>Sustain & Latch</h2>
+        <ul>
+            <li><b>Sustain:</b> Keeps notes sounding after you release the mouse. Visual feedback clears on release so you can see what you touched.</li>
+            <li><b>Latch:</b> Toggles notes on/off. Click once to start a note, click again to stop it. Great for building chords.</li>
+            <li><b>Right-Click Latch:</b> Right-click any key to toggle latch on just that note, while using regular clicks for normal playing.</li>
+        </ul>
+        
+        <h2>Velocity Control</h2>
+        <p>Use the velocity slider to control how hard notes are played (20-127).</p>
+        <p>Choose a velocity curve:</p>
+        <ul>
+            <li><b>Linear:</b> Direct 1:1 mapping</li>
+            <li><b>Soft:</b> Gentler response, good for expressive playing</li>
+            <li><b>Hard:</b> More aggressive response</li>
+        </ul>
+        
+        <h2>Octave Controls</h2>
+        <p>Use the <b>-</b> and <b>+</b> buttons (or Z/X keys) to shift the keyboard up or down by octaves.</p>
+        
+        <h2>Scale Quantization</h2>
+        <p>Enable scale quantization to snap notes to a specific scale, helping you avoid wrong notes.</p>
+        
+        <h2>MIDI Setup</h2>
+        <p>Select your MIDI output port from the <b>MIDI</b> menu. On Windows, we recommend using 
+        <a href="https://www.tobias-erichsen.de/software/loopmidi.html">loopMIDI</a> to create virtual MIDI ports.</p>
+        
+        <h2>Keyboard Shortcuts</h2>
+        <table border="1" cellpadding="5" style="border-collapse: collapse;">
+            <tr><td><b>Z / X</b></td><td>Octave Down / Up</td></tr>
+            <tr><td><b>1 / 2 / 3</b></td><td>Velocity curve (Soft / Linear / Hard)</td></tr>
+            <tr><td><b>Q</b></td><td>Toggle scale quantization</td></tr>
+            <tr><td><b>Esc</b></td><td>All Notes Off (panic)</td></tr>
+        </table>
+        
+        <h2>Additional Windows</h2>
+        <h3>Chord Monitor</h3>
+        <p>A 4x4 grid for storing and playing chord cards. See <b>Help → Chord Monitor Help</b> for details.</p>
+        
+        <h3>Pad Grid</h3>
+        <p>A 4x4 drum pad grid for triggering samples or drums.</p>
+        
+        <h3>Faders</h3>
+        <p>8 MIDI CC faders for controlling parameters in your DAW or synth.</p>
+        
+        <h3>XY Fader</h3>
+        <p>A 2D XY pad for expressive control of two MIDI CCs simultaneously.</p>
+        
+        <h3>Harmonic Table</h3>
+        <p>An isomorphic keyboard layout using hexagonal keys. Horizontal movement = fifths, diagonal = thirds.</p>
+        """
+        
+        content.setText(guide_html)
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+        
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.close)
+        layout.addWidget(close_btn)
+        
+        dialog.exec()
+    
+    def show_chord_monitor_help(self):
+        """Show Chord Monitor specific help dialog."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Chord Monitor Help")
+        dialog.setMinimumSize(650, 550)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Create scrollable text area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
+        
+        content = QLabel()
+        content.setWordWrap(True)
+        content.setTextFormat(Qt.TextFormat.RichText)
+        content.setStyleSheet("padding: 20px; background: white; color: #222;")
+        content.setAlignment(Qt.AlignmentFlag.AlignTop)
+        
+        help_html = """
+        <h1 style="color: #2f82e6;">Chord Monitor Help</h1>
+        
+        <h2>Overview</h2>
+        <p>The Chord Monitor is a 4x4 grid for storing, playing, and editing chord cards. 
+        It displays chords you play on the keyboard and lets you replay them with a single click.</p>
+        
+        <h2>Adding Chords</h2>
+        <ul>
+            <li>Play a chord on the keyboard with <b>Latch</b> enabled</li>
+            <li>The chord card appears in the keyboard's header area</li>
+            <li><b>Drag</b> the card from the keyboard to an empty slot in the Chord Monitor</li>
+        </ul>
+        
+        <h2>Playing Chords</h2>
+        <ul>
+            <li><b>Click and hold</b> a chord card to play it</li>
+            <li>Release to stop the chord (unless Sustain is on)</li>
+            <li>Use <b>Sustain</b> to keep chords ringing after release</li>
+        </ul>
+        
+        <h2>Rearranging Cards</h2>
+        <ul>
+            <li><b>Drag</b> a card to another card to swap their positions</li>
+            <li><b>Drag</b> a card to an empty slot to move it there</li>
+        </ul>
+        
+        <h2>Editing Chords</h2>
+        <ul>
+            <li><b>Drag</b> a chord card to the keyboard's chord display area (in the header)</li>
+            <li>The chord's notes will be latched on the keyboard</li>
+            <li>Edit the chord using right-click latch to add/remove notes</li>
+            <li>Drag the updated chord back to the Chord Monitor</li>
+        </ul>
+        
+        <h2>Chord Suggestions (Right-Click Menu)</h2>
+        <p><b>Right-click</b> any chord card to see suggestions for the next chord:</p>
+        
+        <h3>Neo-Riemannian Transformations</h3>
+        <ul>
+            <li><b>P (Parallel):</b> Major ↔ Minor (same root)</li>
+            <li><b>L (Leading-tone):</b> Smooth voice leading transformation</li>
+            <li><b>R (Relative):</b> Major → Relative Minor or vice versa</li>
+            <li><b>N (Nebenverwandt):</b> To the subdominant's parallel</li>
+            <li><b>S (Slide):</b> Root moves by semitone</li>
+            <li><b>H (Hexatonic Pole):</b> Maximally distant chord</li>
+        </ul>
+        
+        <h3>Circle of Fifths</h3>
+        <ul>
+            <li><b>V (Dominant):</b> Up a fifth</li>
+            <li><b>IV (Subdominant):</b> Up a fourth</li>
+            <li><b>V7:</b> Dominant seventh chord</li>
+            <li><b>V/V:</b> Secondary dominant</li>
+        </ul>
+        
+        <h3>Diatonic Progressions</h3>
+        <ul>
+            <li><b>ii, iii, vi, vii°:</b> Common diatonic chord movements</li>
+        </ul>
+        
+        <h3>Chromatic</h3>
+        <ul>
+            <li><b>Tritone Sub:</b> Jazz tritone substitution</li>
+            <li><b>Minor Plagal:</b> iv chord (minor subdominant)</li>
+            <li><b>Neapolitan:</b> bII major chord</li>
+            <li><b>Aug6:</b> Augmented sixth approach</li>
+        </ul>
+        
+        <p><b>Preview:</b> Click the ▶ button to hear a suggestion.<br>
+        <b>Add:</b> Click a suggestion to add it to the next empty slot in the grid.</p>
+        
+        <h2>Humanize Controls</h2>
+        <ul>
+            <li><b>Velocity:</b> Randomize velocity for natural feel</li>
+            <li><b>Drift:</b> Stagger note timing (humanize the attack)</li>
+            <li><b>Drift Direction:</b> Notes drift up, down, or randomly</li>
+        </ul>
+        
+        <h2>Other Options</h2>
+        <ul>
+            <li><b>Sustain:</b> Keep notes ringing after release</li>
+            <li><b>All Notes Off:</b> Panic button to stop all sound</li>
+            <li><b>Exclusive Mode:</b> Only one chord plays at a time</li>
+        </ul>
+        """
+        
+        content.setText(help_html)
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+        
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.close)
+        layout.addWidget(close_btn)
+        
+        dialog.exec()
 
     def show_about_dialog(self):
         year = datetime.now().year

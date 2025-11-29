@@ -1,7 +1,8 @@
 """Chord Selector Widget with drag-and-drop chord cards for replay functionality."""
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QComboBox, QFrame, QScrollArea, QMenu, QSizePolicy, QSlider, QCheckBox
+    QComboBox, QFrame, QScrollArea, QMenu, QSizePolicy, QSlider, QCheckBox,
+    QWidgetAction
 )
 from PySide6.QtCore import Qt, QMimeData, QPoint, QTimer, QRectF, QEvent
 from PySide6.QtGui import QDrag, QPainter, QColor, QFont
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 import random
 from .midi_io import MidiOut
+from .chord_suggestions import get_all_suggestions, ChordSuggestion
 
 # Chord definitions: (root_note_offset, intervals)
 # Intervals are relative to root, in semitones (0-11 for one octave, can extend beyond)
@@ -683,11 +685,173 @@ class ReplayCard(QFrame):
         self._playing_notes = []
     
     def contextMenuEvent(self, event):  # type: ignore[override]
-        """Show context menu on right-click to remove card."""
+        """Show context menu on right-click with chord suggestions and remove option."""
         menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2b2f36;
+                border: 1px solid #3b4148;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 6px 24px 6px 12px;
+                color: #fff;
+            }
+            QMenu::item:selected {
+                background-color: #3a3f46;
+            }
+            QMenu::separator {
+                height: 1px;
+                background: #3b4148;
+                margin: 4px 8px;
+            }
+        """)
+        
+        # Add "Suggest Next Chord" submenu
+        suggest_menu = menu.addMenu("Suggest Next Chord")
+        suggest_menu.setStyleSheet(menu.styleSheet())
+        
+        # Get suggestions based on current chord
+        suggestions = get_all_suggestions(self.root_note, self.chord_type, self.actual_notes)
+        
+        # Add submenus for each category
+        for category, chord_list in suggestions.items():
+            if not chord_list:
+                continue
+            
+            category_menu = suggest_menu.addMenu(category)
+            category_menu.setStyleSheet(menu.styleSheet())
+            
+            for suggestion in chord_list:
+                # Create a widget for the suggestion with play button
+                suggestion_widget = QWidget()
+                suggestion_layout = QHBoxLayout(suggestion_widget)
+                suggestion_layout.setContentsMargins(8, 4, 8, 4)
+                suggestion_layout.setSpacing(8)
+                
+                # Play button
+                play_btn = QPushButton("▶")
+                play_btn.setFixedSize(24, 24)
+                play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                play_btn.setStyleSheet("""
+                    QPushButton {
+                        background: #2f82e6;
+                        border: none;
+                        border-radius: 12px;
+                        color: white;
+                        font-size: 10px;
+                    }
+                    QPushButton:hover {
+                        background: #4a9fff;
+                    }
+                    QPushButton:pressed {
+                        background: #2a6fc2;
+                    }
+                """)
+                # Store suggestion data for preview
+                play_btn.setProperty("suggestion_notes", suggestion.actual_notes)
+                play_btn.clicked.connect(lambda checked, s=suggestion: self._preview_suggestion(s))
+                suggestion_layout.addWidget(play_btn)
+                
+                # Chord name and transformation
+                text_widget = QWidget()
+                text_layout = QVBoxLayout(text_widget)
+                text_layout.setContentsMargins(0, 0, 0, 0)
+                text_layout.setSpacing(0)
+                
+                name_label = QLabel(suggestion.name)
+                name_label.setStyleSheet("color: #fff; font-weight: bold; font-size: 12px;")
+                text_layout.addWidget(name_label)
+                
+                transform_label = QLabel(suggestion.transformation)
+                transform_label.setStyleSheet("color: #888; font-size: 10px;")
+                text_layout.addWidget(transform_label)
+                
+                suggestion_layout.addWidget(text_widget)
+                suggestion_layout.addStretch()
+                
+                # Create widget action
+                widget_action = QWidgetAction(category_menu)
+                widget_action.setDefaultWidget(suggestion_widget)
+                
+                # Click to add suggestion to next empty slot
+                suggestion_widget.setProperty("suggestion", suggestion)
+                suggestion_widget.mousePressEvent = lambda e, s=suggestion, m=menu: self._add_suggestion_to_grid(e, s, m)
+                suggestion_widget.setCursor(Qt.CursorShape.PointingHandCursor)
+                
+                category_menu.addAction(widget_action)
+        
+        menu.addSeparator()
+        
+        # Remove action
         remove_action = menu.addAction("Remove")
         remove_action.triggered.connect(self._remove_card)
+        
         menu.exec_(event.globalPos())
+    
+    def _preview_suggestion(self, suggestion: ChordSuggestion) -> None:
+        """Preview a chord suggestion by playing it briefly."""
+        # Stop any currently playing notes
+        self._stop_playing_notes()
+        
+        # Play the suggestion notes
+        velocity = 80
+        if hasattr(self.replay_area, '_parent_window'):
+            try:
+                velocity = self.replay_area._parent_window._get_velocity()
+            except Exception:
+                pass
+        
+        for note in suggestion.actual_notes:
+            try:
+                self.replay_area.midi.note_on(note, velocity, self.replay_area.midi_channel)
+                self._playing_notes.append(note)
+            except Exception:
+                pass
+        
+        # Stop after a short delay
+        QTimer.singleShot(800, self._stop_playing_notes)
+    
+    def _add_suggestion_to_grid(self, event, suggestion: ChordSuggestion, menu: QMenu) -> None:
+        """Add the suggested chord to the next available empty slot in the grid."""
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        
+        # Close the menu first
+        menu.close()
+        
+        # Check if replay_area has grid_positions (ChordMonitorReplayArea)
+        if not hasattr(self.replay_area, 'grid_positions'):
+            return
+        
+        # Find first empty slot
+        empty_slot = None
+        for i, card in enumerate(self.replay_area.grid_positions):
+            if card is None:
+                empty_slot = i
+                break
+        
+        if empty_slot is None:
+            # No empty slots available
+            return
+        
+        # Remove placeholder button at target if it exists
+        if hasattr(self.replay_area, 'placeholder_buttons'):
+            placeholder = self.replay_area.placeholder_buttons[empty_slot]
+            if placeholder is not None:
+                placeholder.hide()
+                placeholder.setParent(None)
+                placeholder.deleteLater()
+                self.replay_area.placeholder_buttons[empty_slot] = None
+        
+        # _create_card_at_slot is on the replay_area itself (ChordMonitorReplayArea)
+        if hasattr(self.replay_area, '_create_card_at_slot'):
+            self.replay_area._create_card_at_slot(
+                empty_slot, 
+                suggestion.root_note, 
+                suggestion.chord_type, 
+                suggestion.actual_notes
+            )
     
     def _remove_card(self) -> None:
         """Remove this card from the grid."""

@@ -1,9 +1,9 @@
 """Simplified Chord Monitor Window - just a 2x4 grid replay area."""
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QFrame, QSizePolicy, QMainWindow, QPushButton, QSlider, QCheckBox, QComboBox
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QFrame, QSizePolicy, QMainWindow, QPushButton, QSlider, QCheckBox, QComboBox, QMenu
 )
 from PySide6.QtCore import Qt, QMimeData, QEvent, QTimer, QRectF
-from PySide6.QtGui import QIcon, QPainter, QColor
+from PySide6.QtGui import QIcon, QPainter, QColor, QAction, QActionGroup
 from typing import List, Optional, TYPE_CHECKING, Union, Any
 from pathlib import Path
 import random
@@ -609,6 +609,7 @@ class ChordMonitorWindow(QMainWindow):
         from .keyboard_widget import RangeSlider  # noqa: F811
         self._RangeSlider = RangeSlider
         
+        self.midi_channel = midi_channel
         self.setWindowTitle("Chord Monitor")
         
         # Set window icon
@@ -617,6 +618,9 @@ class ChordMonitorWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(icon_path)))
         except Exception:
             pass
+        
+        # Create MIDI channel menu
+        self._create_menu_bar()
         
         # Create central widget
         central_widget = QWidget()
@@ -1092,6 +1096,33 @@ class ChordMonitorWindow(QMainWindow):
                 btn.setStyleSheet(base_qss)
             except Exception:
                 pass
+    
+    def _create_menu_bar(self) -> None:
+        """Create menu bar with MIDI channel selection."""
+        menubar = self.menuBar()
+        
+        midi_menu = menubar.addMenu("&MIDI")
+        chan_menu = midi_menu.addMenu("Channel")
+        
+        self._channel_group = QActionGroup(self)
+        self._channel_group.setExclusive(True)
+        
+        self._channel_actions: List[QAction] = []
+        for ch in range(1, 17):
+            act = QAction(f"Channel {ch}", self)
+            act.setCheckable(True)
+            if ch == self.midi_channel:
+                act.setChecked(True)
+            act.triggered.connect(lambda checked, c=ch: self._set_channel(c))
+            self._channel_group.addAction(act)
+            chan_menu.addAction(act)
+            self._channel_actions.append(act)
+    
+    def _set_channel(self, channel: int) -> None:
+        """Set MIDI channel for chord monitor."""
+        self.midi_channel = channel
+        if hasattr(self, 'replay_area'):
+            self.replay_area.set_channel(channel)
     
     def closeEvent(self, event):  # type: ignore[override]
         """Handle window close event."""
