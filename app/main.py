@@ -40,11 +40,7 @@ class MainWindow(QMainWindow):
             icon_path = Path(__file__).resolve().parent.parent / "Octavium icon.png"
             self.setWindowIcon(QIcon(str(icon_path)))
         except Exception as e:
-            try:
-                QMessageBox.critical(self, "Harmonic Table Error", f"Failed to switch to Harmonic Table:\n{e}\n\n{traceback.format_exc()}")
-            except Exception:
-                print("Failed to switch to Harmonic Table:", e)
-                print(traceback.format_exc())
+            print(f"Failed to set window icon: {e}")
         # Initialize state and build default Piano keyboard
         self.current_size = size
         self.current_scale = 1.0
@@ -422,7 +418,7 @@ class MainWindow(QMainWindow):
         self.size_group = QActionGroup(self)
         self.size_group.setExclusive(True)
         self.size_actions = {}
-        for size in [25, 49, 61, 73, 76, 88]:
+        for size in [49, 61, 73, 76, 88]:
             act = QAction(f"{size} Keys", self)
             act.setCheckable(True)
             if size == self.current_size:
@@ -453,14 +449,6 @@ class MainWindow(QMainWindow):
         self.size_group.addAction(xy_act)
         kb_menu.addAction(xy_act)
         self.size_actions['xy'] = xy_act
-        # Harmonic Table option
-        harm_act = QAction("Harmonic Table", self)
-        harm_act.setCheckable(True)
-        harm_act.setChecked(False)
-        harm_act.triggered.connect(lambda checked: self.set_harmonic_table())
-        self.size_group.addAction(harm_act)
-        kb_menu.addAction(harm_act)
-        self.size_actions['harmonic'] = harm_act
 
         # MIDI menu
         midi_menu = menubar.addMenu("&MIDI")
@@ -1018,7 +1006,7 @@ class MainWindow(QMainWindow):
 
         # For piano widgets, we constrain width to content_width to prevent stretching.
         # For pad grid/other fixed widgets, let their sizeHint govern.
-        is_fixed = isinstance(self.keyboard, (PadGridWidget, FadersWidget, XYFaderWidget, HarmonicTableWidget))
+        is_fixed = isinstance(self.keyboard, (PadGridWidget, FadersWidget, XYFaderWidget))
         if not is_fixed:
             try:
                 self.keyboard.setMinimumWidth(int(content_width))
