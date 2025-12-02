@@ -3,7 +3,8 @@ import traceback
 from datetime import datetime
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QMenu, QInputDialog, QMessageBox,
-    QDialog, QDialogButtonBox, QFormLayout, QComboBox, QLabel
+    QDialog, QDialogButtonBox, QFormLayout, QComboBox, QLabel, QWidget,
+    QVBoxLayout, QScrollArea, QPushButton
 )
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QPixmap, QShortcut, QKeySequence
 from pathlib import Path
@@ -26,6 +27,8 @@ from .piano_layout import create_piano_by_size
 from .pad_grid import PadGridWidget, create_pad_grid_layout
 from .faders import FadersWidget
 from .xy_fader import XYFaderWidget
+from .harmonic_table import HarmonicTableWidget
+from .chord_monitor_window import ChordMonitorWindow
 
 
 class MainWindow(QMainWindow):
@@ -42,6 +45,9 @@ class MainWindow(QMainWindow):
         self.current_size = size
         self.current_scale = 1.0
         self.current_channel = 1
+        self.chord_monitor_window: ChordMonitorWindow | None = None
+        # Track if MIDI is shared (from launcher) to prevent port changes
+        self.midi_is_shared = midi is not None
         # Create or reuse MIDI
         if midi is None:
             try:
@@ -52,7 +58,9 @@ class MainWindow(QMainWindow):
         # Build initial widget
         self.current_layout_type = 'piano'
         layout = create_piano_by_size(size)
-        self.keyboard = KeyboardWidget(layout, midi, title=f"Piano {size}-Key -> {port_hint}", show_header=False, scale=self.current_scale)
+        # Show header only on 25-key keyboard
+        show_header = (size == 25)
+        self.keyboard = KeyboardWidget(layout, midi, title=f"Piano {size}-Key -> {port_hint}", show_header=show_header, scale=self.current_scale)
         self.keyboard.port_name = port_hint
         self.keyboard.set_channel(self.current_channel)
         self.setCentralWidget(self.keyboard)
@@ -71,6 +79,54 @@ class MainWindow(QMainWindow):
         # Build menus last
         self._build_menus()
 
+    def set_harmonic_table(self):
+        """Switch to the Harmonic Table widget."""
+        try:
+            self.current_layout_type = 'harmonic'
+            new_widget = HarmonicTableWidget(self.keyboard.midi, scale=getattr(self.keyboard, 'ui_scale', 1.0))
+            try:
+                new_widget.port_name = getattr(self.keyboard, 'port_name', "")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self.setCentralWidget(new_widget)
+            try:
+                self.keyboard.deleteLater()
+            except Exception:
+                pass
+            self.keyboard = new_widget
+            self.keyboard.set_channel(self.current_channel)
+            # Update menu checks
+            try:
+                for k, act in getattr(self, 'size_actions', {}).items():
+                    if isinstance(k, int):
+                        act.setChecked(False)
+                if 'pad4x4' in self.size_actions:
+                    self.size_actions['pad4x4'].setChecked(False)
+                if 'faders' in self.size_actions:
+                    self.size_actions['faders'].setChecked(False)
+                if 'xy' in self.size_actions:
+                    self.size_actions['xy'].setChecked(False)
+                if 'harmonic' in self.size_actions:
+                    self.size_actions['harmonic'].setChecked(True)
+                if 'chord_selector' in self.size_actions:
+                    self.size_actions['chord_selector'].setChecked(False)
+            except Exception:
+                pass
+            try:
+                self._update_faders_menu_enabled(); self._update_xy_menu_enabled()
+            except Exception:
+                pass
+            self._update_window_title()
+            self._resize_for_layout(None)
+            self.keyboard.adjustSize()
+            self.adjustSize()
+            QTimer.singleShot(0, lambda: (
+                self.keyboard.adjustSize(),
+                self._resize_for_layout(None),
+                self.adjustSize()
+            ))
+        except Exception:
+            pass
 
     def _update_xy_menu_enabled(self):
         try:
@@ -102,11 +158,11 @@ class MainWindow(QMainWindow):
             cby.setCurrentIndex(max(0, min(127, int(ccy))))
             form.addRow(QLabel("X CC"), cbx)
             form.addRow(QLabel("Y CC"), cby)
-            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)
+            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)  # type: ignore[attr-defined]
             buttons.accepted.connect(dlg.accept)
             buttons.rejected.connect(dlg.reject)
             form.addRow(buttons)
-            if dlg.exec() != QDialog.Accepted:
+            if dlg.exec() != QDialog.Accepted:  # type: ignore[attr-defined]
                 return
             try:
                 self.keyboard.set_cc_numbers(int(cbx.currentData()), int(cby.currentData()))  # type: ignore[attr-defined]
@@ -167,13 +223,13 @@ class MainWindow(QMainWindow):
         visual_hold.setChecked(bool(self.menu_actions.get('visual_hold_checked', False)))
         def _toggle_visual_hold(checked: bool):
             try:
-                self.keyboard.visual_hold_on_sustain = checked
+                self.keyboard.visual_hold_on_sustain = checked  # type: ignore[attr-defined]
                 # Persist the checked state
                 self.menu_actions['visual_hold_checked'] = checked
                 # Re-sync visuals when toggled, without touching notes
                 try:
                     st = self.keyboard.style()
-                    for btn in self.keyboard.key_buttons.values():
+                    for btn in self.keyboard.key_buttons.values():  # type: ignore[attr-defined]
                         st.unpolish(btn)
                         st.polish(btn)
                         btn.update()
@@ -183,22 +239,80 @@ class MainWindow(QMainWindow):
                 pass
         visual_hold.triggered.connect(_toggle_visual_hold)
         view_menu.addAction(visual_hold)
+        # Chord Monitor option (window only, inline display is always on)
+        chord_monitor = QAction("Chord Monitor", self)
+        chord_monitor.setCheckable(True)
+        chord_monitor.setChecked(bool(self.menu_actions.get('chord_monitor', False)))
+        def _toggle_chord_monitor(checked: bool):
+            try:
+                # The inline chord display is always on (keyboard.chord_monitor = True)
+                # This menu only controls the separate chord monitor window
+                self.menu_actions['chord_monitor'] = checked
+                # Open or close chord monitor window
+                if checked:
+                    self._open_chord_monitor_window()
+                else:
+                    self._close_chord_monitor_window()
+            except Exception:
+                pass
+        chord_monitor.triggered.connect(_toggle_chord_monitor)
+        view_menu.addAction(chord_monitor)
+        # Drag While Sustain option
+        drag_while_sustain = QAction("Drag While Sustain", self)
+        drag_while_sustain.setCheckable(True)
+        drag_while_sustain.setChecked(bool(self.menu_actions.get('drag_while_sustain_checked', False)))
+        def _toggle_drag_while_sustain(checked: bool):
+            try:
+                self.keyboard.drag_while_sustain = checked  # type: ignore[attr-defined]
+                # Persist the checked state
+                self.menu_actions['drag_while_sustain_checked'] = checked
+            except Exception:
+                pass
+        drag_while_sustain.triggered.connect(_toggle_drag_while_sustain)
+        view_menu.addAction(drag_while_sustain)
+        # Right-Click Latch option (enabled by default)
+        right_click_latch = QAction("Right-Click Latch", self)
+        right_click_latch.setCheckable(True)
+        right_click_latch.setChecked(bool(self.menu_actions.get('right_click_latch_checked', True)))
+        def _toggle_right_click_latch(checked: bool):
+            try:
+                self.keyboard.right_click_latch = checked  # type: ignore[attr-defined]
+                # Persist the checked state
+                self.menu_actions['right_click_latch_checked'] = checked
+            except Exception:
+                pass
+        right_click_latch.triggered.connect(_toggle_right_click_latch)
+        view_menu.addAction(right_click_latch)
         # Persist
         self.menu_actions['show_mod'] = show_mod.isChecked()
         self.menu_actions['show_pitch'] = show_pitch.isChecked()
         self.menu_actions['view_show_mod'] = show_mod
         self.menu_actions['view_show_pitch'] = show_pitch
         self.menu_actions['visual_hold'] = visual_hold
+        self.menu_actions['chord_monitor'] = chord_monitor
+        self.menu_actions['drag_while_sustain'] = drag_while_sustain
+        self.menu_actions['right_click_latch'] = right_click_latch
         # Apply current selections
         try:
             self._apply_show_mod_wheel(show_mod.isChecked())
             self._apply_show_pitch_wheel(show_pitch.isChecked())
             # Apply visual hold default (unchecked) or previous
-            self.keyboard.visual_hold_on_sustain = visual_hold.isChecked()
+            try:
+                self.keyboard.visual_hold_on_sustain = visual_hold.isChecked()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            # Apply right-click latch default (unchecked) or previous
+            try:
+                self.keyboard.right_click_latch = right_click_latch.isChecked()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            # Inline chord display is always on by default (keyboard.chord_monitor = True)
+            # Don't open the chord monitor window automatically
+            # User can open it via View > Chord Monitor menu if desired
             # Ensure styles reflect any change
             try:
                 st = self.keyboard.style()
-                for btn in self.keyboard.key_buttons.values():
+                for btn in self.keyboard.key_buttons.values():  # type: ignore[attr-defined]
                     st.unpolish(btn)
                     st.polish(btn)
                     btn.update()
@@ -244,6 +358,8 @@ class MainWindow(QMainWindow):
                     self.size_actions['faders'].setChecked(False)
                 if 'xy' in self.size_actions:
                     self.size_actions['xy'].setChecked(True)
+                if 'chord_selector' in self.size_actions:
+                    self.size_actions['chord_selector'].setChecked(False)
             except Exception:
                 pass
             try:
@@ -289,9 +405,9 @@ class MainWindow(QMainWindow):
             self.menu_actions['zoom_group'] = self.zoom_group
             self.menu_actions['zoom_scale'] = self.current_scale
             try:
-                QShortcut(QKeySequence("Ctrl++"), self, activated=self._zoom_in_step)
-                QShortcut(QKeySequence("Ctrl+="), self, activated=self._zoom_in_step)
-                QShortcut(QKeySequence("Ctrl+-"), self, activated=self._zoom_out_step)
+                QShortcut(QKeySequence("Ctrl++"), self, activated=self._zoom_in_step)  # type: ignore[arg-type]
+                QShortcut(QKeySequence("Ctrl+="), self, activated=self._zoom_in_step)  # type: ignore[arg-type]
+                QShortcut(QKeySequence("Ctrl+-"), self, activated=self._zoom_out_step)  # type: ignore[arg-type]
             except Exception:
                 pass
         except Exception:
@@ -363,7 +479,7 @@ class MainWindow(QMainWindow):
         unlimited_act.setChecked(prev_sel == 'Unlimited')
         def _select_unlimited():
             try:
-                self.keyboard.set_polyphony_enabled(False)
+                self.keyboard.set_polyphony_enabled(False)  # type: ignore[attr-defined]
             except Exception:
                 pass
             self.menu_actions['voices_selected'] = 'Unlimited'
@@ -372,8 +488,8 @@ class MainWindow(QMainWindow):
         voices_menu.addAction(unlimited_act)
         def _select_limited(n: int):
             try:
-                self.keyboard.set_polyphony_enabled(True)
-                self.keyboard.set_polyphony_max(n)
+                self.keyboard.set_polyphony_enabled(True)  # type: ignore[attr-defined]
+                self.keyboard.set_polyphony_max(n)  # type: ignore[attr-defined]
             except Exception:
                 pass
             self.menu_actions['voices_selected'] = str(n)
@@ -421,9 +537,21 @@ class MainWindow(QMainWindow):
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
+        
+        user_guide = QAction("User Guide", self)
+        user_guide.triggered.connect(self.show_user_guide)
+        help_menu.addAction(user_guide)
+        
         kb_shortcuts = QAction("Keyboard Shortcuts", self)
         kb_shortcuts.triggered.connect(self.show_keyboard_shortcuts)
         help_menu.addAction(kb_shortcuts)
+        
+        chord_monitor_help = QAction("Chord Monitor Help", self)
+        chord_monitor_help.triggered.connect(self.show_chord_monitor_help)
+        help_menu.addAction(chord_monitor_help)
+        
+        help_menu.addSeparator()
+        
         about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about_dialog)
         help_menu.addAction(about_action)
@@ -436,7 +564,9 @@ class MainWindow(QMainWindow):
         self.current_layout_type = 'piano'
         # Rebuild keyboard with same MIDI out
         layout = create_piano_by_size(size)
-        new_keyboard = KeyboardWidget(layout, self.keyboard.midi, show_header=False, scale=getattr(self.keyboard, 'ui_scale', 1.0))
+        # Show header only on 25-key keyboard
+        show_header = (size == 25)
+        new_keyboard = KeyboardWidget(layout, self.keyboard.midi, show_header=show_header, scale=getattr(self.keyboard, 'ui_scale', 1.0))
         new_keyboard.port_name = self.keyboard.port_name
         new_keyboard.update_window_title()
         self.setCentralWidget(new_keyboard)
@@ -450,13 +580,22 @@ class MainWindow(QMainWindow):
                 # Visual hold
                 if 'visual_hold' in self.menu_actions:
                     self.keyboard.visual_hold_on_sustain = self.menu_actions['visual_hold'].isChecked()
+                # Chord monitor
+                if 'chord_monitor' in self.menu_actions:
+                    chord_monitor_checked = self.menu_actions['chord_monitor'].isChecked() if hasattr(self.menu_actions['chord_monitor'], 'isChecked') else bool(self.menu_actions.get('chord_monitor', False))
+                    if hasattr(self.keyboard, 'set_chord_monitor'):
+                        self.keyboard.set_chord_monitor(chord_monitor_checked)
+                # Drag while sustain
+                if 'drag_while_sustain' in self.menu_actions:
+                    drag_while_sustain_checked = self.menu_actions['drag_while_sustain'].isChecked() if hasattr(self.menu_actions['drag_while_sustain'], 'isChecked') else bool(self.menu_actions.get('drag_while_sustain_checked', False))
+                    self.keyboard.drag_while_sustain = drag_while_sustain_checked
                 # Voices (polyphony): apply current selection (Unlimited or 1-8)
                 sel = self.menu_actions.get('voices_selected', 'Unlimited')
                 try:
                     if sel == 'Unlimited':
                         self.keyboard.set_polyphony_enabled(False)
                     else:
-                        self.keyboard.set_polyphony_enabled(True)
+                        self.keyboard.set_polyphony_enabled(True)  # type: ignore[attr-defined]
                         try:
                             self.keyboard.set_polyphony_max(int(sel))
                         except Exception:
@@ -483,6 +622,8 @@ class MainWindow(QMainWindow):
                 self.size_actions['pad4x4'].setChecked(False)
             if hasattr(self, 'size_actions') and 'faders' in self.size_actions:
                 self.size_actions['faders'].setChecked(False)
+            if hasattr(self, 'size_actions') and 'chord_selector' in self.size_actions:
+                self.size_actions['chord_selector'].setChecked(False)
         except Exception:
             pass
         # Resize window for the new layout (immediate + deferred)
@@ -496,10 +637,52 @@ class MainWindow(QMainWindow):
         ))
 
         # Update checkmarks in menu
-        kb_menu: QMenu = self.menuBar().findChild(QMenu, None)
+        kb_menu: QMenu = self.menuBar().findChild(QMenu, None)  # type: ignore[arg-type,assignment]
         # Not strictly necessary to update checks programmatically; actions will visually toggle by selection.
 
+    def _open_chord_monitor_window(self):
+        """Open the chord monitor window."""
+        try:
+            if self.chord_monitor_window is None or not hasattr(self.chord_monitor_window, 'isVisible') or not self.chord_monitor_window.isVisible():
+                self.chord_monitor_window = ChordMonitorWindow(
+                    self.keyboard.midi, 
+                    self.current_channel - 1,
+                    None
+                )
+                # Store reference to parent for menu updates
+                self.chord_monitor_window._parent_main = self  # type: ignore[attr-defined]
+                self.chord_monitor_window.set_channel(self.current_channel - 1)
+                # Keep reference to prevent GC
+                if not hasattr(self.app_ref, "_chord_monitor_windows"):
+                    self.app_ref._chord_monitor_windows = []  # type: ignore[attr-defined]
+                self.app_ref._chord_monitor_windows.append(self.chord_monitor_window)  # type: ignore[attr-defined]
+                self.chord_monitor_window.show()
+            else:
+                self.chord_monitor_window.raise_()
+                self.chord_monitor_window.activateWindow()
+        except Exception:
+            pass
+    
+    def _close_chord_monitor_window(self):
+        """Close the chord monitor window."""
+        try:
+            if self.chord_monitor_window is not None:
+                self.chord_monitor_window.close()
+                self.chord_monitor_window = None
+        except Exception:
+            pass
+    
     def select_midi_port(self):
+        # Don't allow port changes when using shared MIDI from launcher
+        if self.midi_is_shared:
+            QMessageBox.information(
+                self,
+                "MIDI Port",
+                "MIDI port is managed by the launcher and cannot be changed.\n\n"
+                "Close this window and use the launcher to open windows with different MIDI settings."
+            )
+            return
+        
         ports = list_output_names()
         if not ports:
             QMessageBox.warning(self, "MIDI", "No MIDI output ports found.")
@@ -523,7 +706,7 @@ class MainWindow(QMainWindow):
         dlg.setStyleSheet(
             "QPushButton { border: 2px solid #3399ff; border-radius: 4px; padding: 4px 10px; }"
         )
-        if dlg.exec() != QMessageBox.Accepted:
+        if dlg.exec() != QMessageBox.Accepted:  # type: ignore[attr-defined]
             return
         port = dlg.textValue()
         if not port:
@@ -664,7 +847,9 @@ class MainWindow(QMainWindow):
                 pass
         else:
             layout = create_piano_by_size(self.current_size)
-            new_widget = KeyboardWidget(layout, self.keyboard.midi, show_header=False, scale=scale)
+            # Show header only on 25-key keyboard
+            show_header = (self.current_size == 25)
+            new_widget = KeyboardWidget(layout, self.keyboard.midi, show_header=show_header, scale=scale)
             try:
                 new_widget.port_name = self.keyboard.port_name  # type: ignore[attr-defined]
             except Exception:
@@ -694,20 +879,31 @@ class MainWindow(QMainWindow):
         try:
             self._apply_show_mod_wheel(bool(self.menu_actions.get('show_mod', False)))
             self._apply_show_pitch_wheel(bool(self.menu_actions.get('show_pitch', False)))
-            self.keyboard.visual_hold_on_sustain = bool(self.menu_actions.get('visual_hold_checked', False))
+            self.keyboard.visual_hold_on_sustain = bool(self.menu_actions.get('visual_hold_checked', False))  # type: ignore[attr-defined]
+            # Restore chord monitor state
+            try:
+                chord_monitor_action = self.menu_actions.get('chord_monitor')
+                if chord_monitor_action and hasattr(chord_monitor_action, 'isChecked'):
+                    chord_monitor_checked = chord_monitor_action.isChecked()
+                else:
+                    chord_monitor_checked = bool(self.menu_actions.get('chord_monitor', False))
+                if hasattr(self.keyboard, 'set_chord_monitor'):
+                    self.keyboard.set_chord_monitor(chord_monitor_checked)  # type: ignore[attr-defined]
+            except Exception:
+                pass
         except Exception:
             pass
         # Restore voices (polyphony)
         try:
             sel = self.menu_actions.get('voices_selected', 'Unlimited')
             if sel == 'Unlimited':
-                self.keyboard.set_polyphony_enabled(False)
+                self.keyboard.set_polyphony_enabled(False)  # type: ignore[attr-defined]
             else:
-                self.keyboard.set_polyphony_enabled(True)
+                self.keyboard.set_polyphony_enabled(True)  # type: ignore[attr-defined]
                 try:
-                    self.keyboard.set_polyphony_max(int(sel))
+                    self.keyboard.set_polyphony_max(int(sel))  # type: ignore[attr-defined]
                 except Exception:
-                    self.keyboard.set_polyphony_max(8)
+                    self.keyboard.set_polyphony_max(8)  # type: ignore[attr-defined]
         except Exception:
             pass
         # Persist zoom selection
@@ -756,7 +952,7 @@ class MainWindow(QMainWindow):
             content_width = None
             if hasattr(self, 'keyboard') and hasattr(self.keyboard, 'piano_container'):
                 try:
-                    w_piano = int(self.keyboard.piano_container.width())
+                    w_piano = int(self.keyboard.piano_container.width())  # type: ignore[attr-defined]
                 except Exception:
                     w_piano = None
                 # Include left panel (wheels) width when visible
@@ -803,7 +999,7 @@ class MainWindow(QMainWindow):
         # Update child geometry (piano-specific safe guard)
         try:
             if hasattr(self.keyboard, 'piano_container'):
-                self.keyboard.piano_container.updateGeometry()
+                self.keyboard.piano_container.updateGeometry()  # type: ignore[attr-defined]
             self.keyboard.updateGeometry()
         except Exception:
             pass
@@ -897,8 +1093,229 @@ class MainWindow(QMainWindow):
             "Mouse:\n"
             "- Click keys to play\n"
             "- Click and drag across keys to glide\n"
+            "- Right-click a key to toggle latch on that note\n"
         )
         QMessageBox.information(self, "Keyboard Shortcuts", text)
+    
+    def show_user_guide(self):
+        """Show comprehensive user guide dialog."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Octavium User Guide")
+        dialog.setMinimumSize(700, 600)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Create scrollable text area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
+        
+        content = QLabel()
+        content.setWordWrap(True)
+        content.setTextFormat(Qt.TextFormat.RichText)
+        content.setStyleSheet("padding: 20px; background: white; color: #222;")
+        content.setAlignment(Qt.AlignmentFlag.AlignTop)
+        
+        guide_html = """
+        <h1 style="color: #2f82e6;">Octavium User Guide</h1>
+        
+        <h2>Overview</h2>
+        <p>Octavium is an accessibility-first, mouse-driven virtual MIDI keyboard. 
+        It's designed for creators who primarily use a mouse, including users with motor disabilities.</p>
+        
+        <h2>Getting Started</h2>
+        <p>When you launch Octavium, you'll see the <b>Launcher Window</b> with options to open:</p>
+        <ul>
+            <li><b>Keyboards:</b> 25-key, 49-key, 61-key pianos, and Harmonic Table</li>
+            <li><b>Windows:</b> Chord Monitor, Pad Grid, Faders, and XY Fader</li>
+        </ul>
+        <p>You can open multiple keyboards and windows simultaneously.</p>
+        
+        <h2>Playing Notes</h2>
+        <ul>
+            <li><b>Click</b> a key to play it</li>
+            <li><b>Click and drag</b> across keys to glide between notes</li>
+            <li><b>Right-click</b> a key to toggle latch on that specific note (enabled by default)</li>
+        </ul>
+        
+        <h2>Sustain & Latch</h2>
+        <ul>
+            <li><b>Sustain:</b> Keeps notes sounding after you release the mouse. Visual feedback clears on release so you can see what you touched.</li>
+            <li><b>Latch:</b> Toggles notes on/off. Click once to start a note, click again to stop it. Great for building chords.</li>
+            <li><b>Right-Click Latch:</b> Right-click any key to toggle latch on just that note, while using regular clicks for normal playing.</li>
+        </ul>
+        
+        <h2>Velocity Control</h2>
+        <p>Use the velocity slider to control how hard notes are played (20-127).</p>
+        <p>Choose a velocity curve:</p>
+        <ul>
+            <li><b>Linear:</b> Direct 1:1 mapping</li>
+            <li><b>Soft:</b> Gentler response, good for expressive playing</li>
+            <li><b>Hard:</b> More aggressive response</li>
+        </ul>
+        
+        <h2>Octave Controls</h2>
+        <p>Use the <b>-</b> and <b>+</b> buttons (or Z/X keys) to shift the keyboard up or down by octaves.</p>
+        
+        <h2>Scale Quantization</h2>
+        <p>Enable scale quantization to snap notes to a specific scale, helping you avoid wrong notes.</p>
+        
+        <h2>MIDI Setup</h2>
+        <p>Select your MIDI output port from the <b>MIDI</b> menu. On Windows, we recommend using 
+        <a href="https://www.tobias-erichsen.de/software/loopmidi.html">loopMIDI</a> to create virtual MIDI ports.</p>
+        
+        <h2>Keyboard Shortcuts</h2>
+        <table border="1" cellpadding="5" style="border-collapse: collapse;">
+            <tr><td><b>Z / X</b></td><td>Octave Down / Up</td></tr>
+            <tr><td><b>1 / 2 / 3</b></td><td>Velocity curve (Soft / Linear / Hard)</td></tr>
+            <tr><td><b>Q</b></td><td>Toggle scale quantization</td></tr>
+            <tr><td><b>Esc</b></td><td>All Notes Off (panic)</td></tr>
+        </table>
+        
+        <h2>Additional Windows</h2>
+        <h3>Chord Monitor</h3>
+        <p>A 4x4 grid for storing and playing chord cards. See <b>Help → Chord Monitor Help</b> for details.</p>
+        
+        <h3>Pad Grid</h3>
+        <p>A 4x4 drum pad grid for triggering samples or drums.</p>
+        
+        <h3>Faders</h3>
+        <p>8 MIDI CC faders for controlling parameters in your DAW or synth.</p>
+        
+        <h3>XY Fader</h3>
+        <p>A 2D XY pad for expressive control of two MIDI CCs simultaneously.</p>
+        
+        <h3>Harmonic Table</h3>
+        <p>An isomorphic keyboard layout using hexagonal keys. Horizontal movement = fifths, diagonal = thirds.</p>
+        """
+        
+        content.setText(guide_html)
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+        
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.close)
+        layout.addWidget(close_btn)
+        
+        dialog.exec()
+    
+    def show_chord_monitor_help(self):
+        """Show Chord Monitor specific help dialog."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Chord Monitor Help")
+        dialog.setMinimumSize(650, 550)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Create scrollable text area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
+        
+        content = QLabel()
+        content.setWordWrap(True)
+        content.setTextFormat(Qt.TextFormat.RichText)
+        content.setStyleSheet("padding: 20px; background: white; color: #222;")
+        content.setAlignment(Qt.AlignmentFlag.AlignTop)
+        
+        help_html = """
+        <h1 style="color: #2f82e6;">Chord Monitor Help</h1>
+        
+        <h2>Overview</h2>
+        <p>The Chord Monitor is a 4x4 grid for storing, playing, and editing chord cards. 
+        It displays chords you play on the keyboard and lets you replay them with a single click.</p>
+        
+        <h2>Adding Chords</h2>
+        <ul>
+            <li>Play a chord on the keyboard with <b>Latch</b> enabled</li>
+            <li>The chord card appears in the keyboard's header area</li>
+            <li><b>Drag</b> the card from the keyboard to an empty slot in the Chord Monitor</li>
+        </ul>
+        
+        <h2>Playing Chords</h2>
+        <ul>
+            <li><b>Click and hold</b> a chord card to play it</li>
+            <li>Release to stop the chord (unless Sustain is on)</li>
+            <li>Use <b>Sustain</b> to keep chords ringing after release</li>
+        </ul>
+        
+        <h2>Rearranging Cards</h2>
+        <ul>
+            <li><b>Drag</b> a card to another card to swap their positions</li>
+            <li><b>Drag</b> a card to an empty slot to move it there</li>
+        </ul>
+        
+        <h2>Editing Chords</h2>
+        <ul>
+            <li><b>Drag</b> a chord card to the keyboard's chord display area (in the header)</li>
+            <li>The chord's notes will be latched on the keyboard</li>
+            <li>Edit the chord using right-click latch to add/remove notes</li>
+            <li>Drag the updated chord back to the Chord Monitor</li>
+        </ul>
+        
+        <h2>Chord Suggestions (Right-Click Menu)</h2>
+        <p><b>Right-click</b> any chord card to see suggestions for the next chord:</p>
+        
+        <h3>Neo-Riemannian Transformations</h3>
+        <ul>
+            <li><b>P (Parallel):</b> Major ↔ Minor (same root)</li>
+            <li><b>L (Leading-tone):</b> Smooth voice leading transformation</li>
+            <li><b>R (Relative):</b> Major → Relative Minor or vice versa</li>
+            <li><b>N (Nebenverwandt):</b> To the subdominant's parallel</li>
+            <li><b>S (Slide):</b> Root moves by semitone</li>
+            <li><b>H (Hexatonic Pole):</b> Maximally distant chord</li>
+        </ul>
+        
+        <h3>Circle of Fifths</h3>
+        <ul>
+            <li><b>V (Dominant):</b> Up a fifth</li>
+            <li><b>IV (Subdominant):</b> Up a fourth</li>
+            <li><b>V7:</b> Dominant seventh chord</li>
+            <li><b>V/V:</b> Secondary dominant</li>
+        </ul>
+        
+        <h3>Diatonic Progressions</h3>
+        <ul>
+            <li><b>ii, iii, vi, vii°:</b> Common diatonic chord movements</li>
+        </ul>
+        
+        <h3>Chromatic</h3>
+        <ul>
+            <li><b>Tritone Sub:</b> Jazz tritone substitution</li>
+            <li><b>Minor Plagal:</b> iv chord (minor subdominant)</li>
+            <li><b>Neapolitan:</b> bII major chord</li>
+            <li><b>Aug6:</b> Augmented sixth approach</li>
+        </ul>
+        
+        <p><b>Preview:</b> Click the ▶ button to hear a suggestion.<br>
+        <b>Add:</b> Click a suggestion to add it to the next empty slot in the grid.</p>
+        
+        <h2>Humanize Controls</h2>
+        <ul>
+            <li><b>Velocity:</b> Randomize velocity for natural feel</li>
+            <li><b>Drift:</b> Stagger note timing (humanize the attack)</li>
+            <li><b>Drift Direction:</b> Notes drift up, down, or randomly</li>
+        </ul>
+        
+        <h2>Other Options</h2>
+        <ul>
+            <li><b>Sustain:</b> Keep notes ringing after release</li>
+            <li><b>All Notes Off:</b> Panic button to stop all sound</li>
+            <li><b>Exclusive Mode:</b> Only one chord plays at a time</li>
+        </ul>
+        """
+        
+        content.setText(help_html)
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+        
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.close)
+        layout.addWidget(close_btn)
+        
+        dialog.exec()
 
     def show_about_dialog(self):
         year = datetime.now().year
@@ -927,7 +1344,7 @@ class MainWindow(QMainWindow):
         )
         msg = QMessageBox(self)
         msg.setWindowTitle("About Octavium")
-        msg.setTextFormat(Qt.RichText)
+        msg.setTextFormat(Qt.TextFormat.RichText)  
         msg.setText(text)
         # Blue bounding box around the OK button
         msg.setStyleSheet(
@@ -963,6 +1380,11 @@ class MainWindow(QMainWindow):
             pass
 
     def closeEvent(self, event):  # type: ignore[override]
+        # Close chord monitor window if open
+        try:
+            self._close_chord_monitor_window()
+        except Exception:
+            pass
         # Explicitly close MIDI port before widgets are torn down
         try:
             self._safe_close_midi()
@@ -1020,6 +1442,8 @@ class MainWindow(QMainWindow):
                     self.size_actions['faders'].setChecked(False)
                 if 'xy' in self.size_actions:
                     self.size_actions['xy'].setChecked(False)
+                if 'chord_selector' in self.size_actions:
+                    self.size_actions['chord_selector'].setChecked(False)
             except Exception:
                 pass
             try:
@@ -1069,6 +1493,8 @@ class MainWindow(QMainWindow):
                     self.size_actions['faders'].setChecked(True)
                 if 'xy' in self.size_actions:
                     self.size_actions['xy'].setChecked(False)
+                if 'chord_selector' in self.size_actions:
+                    self.size_actions['chord_selector'].setChecked(False)
             except Exception:
                 pass
             try:
@@ -1123,11 +1549,11 @@ class MainWindow(QMainWindow):
                 cb.setCurrentIndex(max(0, min(127, sel)))
                 combos.append(cb)
                 form.addRow(QLabel(f"Fader {i+1}"), cb)
-            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)
+            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)  # type: ignore[attr-defined]
             buttons.accepted.connect(dlg.accept)
             buttons.rejected.connect(dlg.reject)
             form.addRow(buttons)
-            if dlg.exec() != QDialog.Accepted:
+            if dlg.exec() != QDialog.Accepted:  # type: ignore[attr-defined]
                 return
             cleaned = [int(cb.currentData()) for cb in combos]
             try:

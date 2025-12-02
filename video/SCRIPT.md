@@ -1,0 +1,203 @@
+# Octavium YouTube Video - Teleprompter Script
+
+**Reading Speed:** ~150 words/minute  
+**Total Words:** ~750 words  
+**Estimated Runtime:** ~5 minutes (with demos)
+
+---
+
+## FORMATTING GUIDE
+
+- **[DEMO]** = Switch to screen capture
+- **[TALKING HEAD]** = Back to camera
+- *Italics* = Emphasis
+- ... = Natural pause
+- // = Breath/beat
+
+---
+
+## SCRIPT
+
+### SEGMENT 1: Hook & Introduction
+
+**[DEMO - Quick montage of Octavium in action]**
+
+**[TALKING HEAD]**
+
+What if you could make music... with just a mouse?
+
+No keyboard. No fancy MIDI controller. Just... *click*.
+
+Hey, I'm Owen, and I built Octavium — an open-source virtual MIDI keyboard designed from the ground up for *accessibility*.
+
+Today I want to show you what it does, why I made it, and how you can start using it — or even help build it.
+
+---
+
+### SEGMENT 2: The Problem / Why I Built This
+
+**[TALKING HEAD]**
+
+So here's the thing. //
+
+Most music software assumes you have two hands... that can move independently... across a physical keyboard.
+
+But that's not everyone.
+
+Maybe you have a motor disability. Maybe you're recovering from an injury. Maybe you just *don't own* a MIDI controller and want to sketch out ideas with your mouse.
+
+Traditional virtual keyboards? They're an afterthought. Tiny keys, no sustain, no way to build chords comfortably.
+
+I wanted something *better*.
+
+**[B-ROLL if available]**
+
+And here's what I realized: when you design for accessibility *first*... you end up making something better for *everyone*.
+
+That's called *universal design*. //
+
+Curb cuts were designed for wheelchairs — but they help everyone. Parents with strollers. Delivery workers with carts. Skateboarders.
+
+Octavium is my curb cut for music software.
+
+---
+
+### SEGMENT 3: Feature Demo - Core Keyboard
+
+**[DEMO - Launch Octavium]**
+
+Let me show you how it works.
+
+When you launch Octavium, you get this launcher window. Pick a keyboard size — or open multiple windows at once. They all share the same MIDI output, so no port conflicts.
+
+**[DEMO - 49-key piano]**
+
+Here's the 49-key piano. Click a key... it plays. Simple.
+
+But watch this — I can *click and drag* across the keys for a glissando. //
+
+That's something you can't easily do on a real keyboard unless you've practiced it.
+
+**[DEMO - Sustain]**
+
+Now, sustain. Turn it on... and notes *ring out* after I release the mouse.
+
+But here's the key insight: the *visual* clears immediately. So I always know what I just touched, even while the sound continues.
+
+**[DEMO - Latch]**
+
+And then there's *latch*. This is where it gets powerful.
+
+With latch on, I click a note — it stays on. Click again — it turns off.
+
+So I can build a chord... one note at a time... with a single mouse.
+
+*That's* accessibility.
+
+---
+
+### SEGMENT 4: Feature Demo - Advanced Surfaces
+
+**[DEMO - Harmonic Table]**
+
+But we're just getting started.
+
+This is the Harmonic Table — an isomorphic layout where *horizontal* movement is perfect fifths, and *diagonals* are thirds.
+
+It makes harmonic relationships *visual*. You can literally *see* how notes relate to each other.
+
+**[DEMO - Quick tour]**
+
+There's also a Chord Monitor for saving and playing chord cards... a 4x4 pad grid for drums... CC faders... and an XY pad for expressive control.
+
+All mouse-driven. All accessible.
+
+---
+
+### SEGMENT 5: Modulune Demo
+
+**[TALKING HEAD]**
+
+Now... what if the software could play *itself*?
+
+**[DEMO - Modulune]**
+
+Meet Modulune — Octavium's generative counterpart.
+
+It creates continuously evolving piano textures in real time. Impressionistic, flowing, never exactly the same twice.
+
+I can adjust tempo... change the key... switch textures...
+
+And it just... *plays*.
+
+It's like having a collaborator who never gets tired.
+
+---
+
+### SEGMENT 6: Technical Background
+
+**[TALKING HEAD]**
+
+Alright, let's talk tech for a second.
+
+Octavium is built with Python, PySide6 for the UI, and mido for MIDI output. It falls back to pygame if you don't have rtmidi installed.
+
+**[DEMO - Code scroll]**
+
+The codebase is clean, well-commented, and *very* hackable.
+
+**[TALKING HEAD]**
+
+And it's completely open source — MIT licensed. Use it however you want.
+
+---
+
+### SEGMENT 7: Call to Action & Outro
+
+**[TALKING HEAD]**
+
+So here's my ask.
+
+If you think accessible music tools matter... *star the repo*. It helps more people find it.
+
+If you want to try it... clone it, pip install, and you're making music in under a minute.
+
+And if you're a developer... *I want your pull requests*.
+
+Add new keyboard layouts. Improve the UI. Port it to other platforms. Make it *yours*.
+
+**[DEMO - GitHub repo]**
+
+Link's in the description. README has everything you need to get started.
+
+**[TALKING HEAD]**
+
+Music should be for everyone. Let's build that future together.
+
+I'm Owen. Thanks for watching.
+
+And hey — *happy music making*.
+
+**[END CARD - Subscribe, GitHub link]**
+
+---
+
+## NOTES FOR DELIVERY
+
+1. **Pace yourself** — Let technical concepts breathe.
+2. **Smile during demos** — You're showing off something cool!
+3. **Look at the lens** — Connect with the viewer.
+4. **Emphasize key phrases** — "Universal design," "accessibility first," "open source."
+5. **Have fun** — You built something awesome. Let that energy come through.
+
+---
+
+## TIMESTAMPS (for YouTube description)
+
+0:00 - What is Octavium?
+0:30 - Why I built this (accessibility & universal design)
+1:15 - Core keyboard demo
+2:15 - Advanced surfaces (Harmonic Table, Chord Monitor, etc.)
+3:00 - Modulune: generative music
+3:45 - Technical background
+4:15 - How to get involved
