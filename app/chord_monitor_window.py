@@ -692,6 +692,26 @@ class ChordMonitorWindow(QMainWindow):
         self.all_off_btn.clicked.connect(self._all_notes_off_clicked)
         header_layout.addWidget(self.all_off_btn)
         
+        # Autofill button
+        self.autofill_btn = QPushButton("Autofill...")
+        self.autofill_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.autofill_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2b2f36;
+                border: 2px solid #3b4148;
+                border-radius: 4px;
+                padding: 6px 16px;
+                color: #fff;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                border: 2px solid #2f82e6;
+                background-color: #3a3f46;
+            }
+        """)
+        self.autofill_btn.clicked.connect(self._show_autofill_dialog)
+        header_layout.addWidget(self.autofill_btn)
+        
         layout.addLayout(header_layout)
         
         # Humanize section
@@ -1029,6 +1049,61 @@ class ChordMonitorWindow(QMainWindow):
             return bool(chk and chk.isChecked())
         except Exception:
             return False
+    
+    def _show_autofill_dialog(self) -> None:
+        """Show the autofill dialog and populate grid with selected chords."""
+        try:
+            from .chord_autofill import AutofillDialog
+            
+            dialog = AutofillDialog(
+                self.replay_area.midi,
+                self.replay_area.midi_channel,
+                parent=self
+            )
+            
+            if dialog.exec() == AutofillDialog.DialogCode.Accepted:
+                chords = dialog.get_chords()
+                self._autofill_grid(chords)
+        except Exception:
+            pass
+    
+    def _autofill_grid(self, chords: list) -> None:
+        """Fill the grid with the given chords."""
+        if not chords:
+            return
+        
+        # Clear existing cards first
+        self._clear_grid()
+        
+        # Fill slots with chords (up to 16 slots)
+        for i, (root, chord_type, notes) in enumerate(chords[:16]):
+            # Remove placeholder at slot if exists
+            if i < len(self.replay_area.placeholder_buttons):
+                placeholder = self.replay_area.placeholder_buttons[i]
+                if placeholder is not None:
+                    placeholder.hide()
+                    placeholder.setParent(None)
+                    placeholder.deleteLater()
+                    self.replay_area.placeholder_buttons[i] = None
+            
+            # Create card at slot
+            self.replay_area._create_card_at_slot(i, root, chord_type, notes)
+    
+    def _clear_grid(self) -> None:
+        """Clear all cards from the grid."""
+        # Remove all existing cards
+        for i, card in enumerate(self.replay_area.grid_positions):
+            if card is not None:
+                card.deleteLater()
+                self.replay_area.grid_positions[i] = None
+        
+        self.replay_area.cards.clear()
+        
+        # Recreate placeholders for empty slots
+        for i in range(16):
+            if self.replay_area.grid_positions[i] is None:
+                if self.replay_area.placeholder_buttons[i] is None:
+                    self.replay_area._create_placeholder_at(i)
     
     def _all_notes_off_clicked(self) -> None:
         """Handle All Notes Off button click."""

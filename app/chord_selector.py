@@ -783,6 +783,10 @@ class ReplayCard(QFrame):
         
         menu.addSeparator()
         
+        # Edit with keyboard action
+        edit_action = menu.addAction("Edit with Keyboard...")
+        edit_action.triggered.connect(self._edit_with_keyboard)
+        
         # Remove action
         remove_action = menu.addAction("Remove")
         remove_action.triggered.connect(self._remove_card)
@@ -852,6 +856,50 @@ class ReplayCard(QFrame):
                 suggestion.chord_type, 
                 suggestion.actual_notes
             )
+    
+    def _edit_with_keyboard(self) -> None:
+        """Open the chord edit dialog with an interactive keyboard."""
+        try:
+            from .chord_autofill import ChordEditDialog
+            
+            # Get MIDI reference from replay area
+            midi = self.replay_area.midi
+            channel = self.replay_area.midi_channel
+            
+            dialog = ChordEditDialog(
+                self.root_note, 
+                self.chord_type, 
+                self.actual_notes,
+                midi, 
+                channel, 
+                parent=self
+            )
+            
+            if dialog.exec() == ChordEditDialog.DialogCode.Accepted:
+                # Update this card with the new notes
+                new_notes = dialog.get_notes()
+                if new_notes:
+                    self.actual_notes = new_notes
+                    # Detect chord from new notes
+                    detected_root, detected_type = detect_chord(new_notes)
+                    if detected_root is not None and detected_type is not None:
+                        self.root_note = detected_root
+                        self.chord_type = detected_type
+                    
+                    # Update labels
+                    layout = self.layout()
+                    if layout:
+                        for i in range(layout.count()):
+                            item = layout.itemAt(i)
+                            if item and item.widget():
+                                widget = item.widget()
+                                if isinstance(widget, QLabel):
+                                    if i == 0:  # Root note label
+                                        widget.setText(NOTES[self.root_note % 12])
+                                    else:  # Chord type label
+                                        widget.setText(self.chord_type)
+        except Exception as e:
+            pass  # Silently fail if dialog can't be opened
     
     def _remove_card(self) -> None:
         """Remove this card from the grid."""
