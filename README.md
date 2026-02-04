@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Octavium%20logo.png" alt="Octavium Logo" width="360" />
+  <img src="assets/Octavium%20logo.png" alt="Octavium Logo" width="360" />
 </p>
 
 # Octavium 🎹
