@@ -33,10 +33,11 @@ The core Octavium application code.
 | `launcher.py` | Launcher window for opening multiple keyboards/windows |
 | `keyboard_widget.py` | Piano keyboard widget (all sizes: 25-88 keys) |
 | `harmonic_table.py` | Isomorphic hex layout keyboard |
-| `chord_monitor_window.py` | 4×4 chord card grid for quick playback |
-| `chord_selector.py` | Chord definitions, ReplayCard widget, chord detection |
+| `chord_monitor_window.py` | 4×4 chord card grid, humanize controls, regeneration, Options dialog |
+| `chord_selector.py` | Chord definitions, ReplayCard widget (lock, context menu, drag), chord detection |
 | `chord_suggestions.py` | Chord suggestion engine for progressions |
-| `chord_autofill.py` | Autofill dialog for populating chord cards by key/mode |
+| `chord_autofill.py` | Autofill dialog, weighted chord generation, scale compliance, lock influence |
+| `midi_chord_loader.py` | Parser for external MIDI chord library files |
 | `pad_grid.py` | 4×4 drum pad grid |
 | `faders.py` | 8 CC fader controls |
 | `xy_fader.py` | 2D XY pad for expressive CC control |
@@ -95,7 +96,9 @@ Algorithmic impressionistic piano generator.
 | `BUILD.md` | Build instructions for creating executables |
 | `BRANCH_STRUCTURE.md` | Git branching strategy |
 | `RELEASE_NOTES.md` | Version history and release notes |
-| `TODO.md` | Feature roadmap and in-progress work |
+| `CHANGELOG.md` | Detailed log of features, fixes, and architecture decisions |
+| `KNOWN_ISSUES.md` | Known issues, maintenance pitfalls, and resolution strategies |
+| `TODO.md` | Feature roadmap — completed and pending items |
 | `MIDI_LIBRARY_PROPOSAL.md` | Proposal for MIDI library integration |
 | `system_overview.md` | Mermaid diagram of application architecture |
 
@@ -150,20 +153,34 @@ free-midi-progressions-20231004/
 
 ### Chord Monitor (`app/chord_monitor_window.py`)
 - 4×4 grid of `ReplayCard` widgets
-- Hold-to-play functionality
+- Hold-to-play functionality with velocity control
 - Drag-and-drop card rearrangement
-- Humanize controls for natural feel
+- Humanize controls: drift slider (direction, range, randomize), velocity randomization
+- Sustain toggle, exclusive chord mode, all-notes-off
+- **Autofill button**: Opens `AutofillDialog` to populate grid by key/mode
+- **Options button**: Opens generation options dialog (key, mode, note counts, inversions, scale compliance, lock influence)
+- **Regeneration**: `_regenerate_card()` (single), `_regenerate_unlocked()` (bulk), `_get_locked_chords()` (lock analysis)
+- **Autofill context**: `_autofill_context` dict stores all generation parameters for regeneration
 
 ### Chord Definitions (`app/chord_selector.py`)
 - `CHORD_DEFINITIONS` dict: Maps chord names → intervals
 - `NOTES` list: Note names C through B
-- `ReplayCard` class: Draggable chord card widget
+- `ReplayCard` class: Draggable chord card widget with lock state, context menu (Lock, Generate new chord, Regenerate unlocked, Edit with Keyboard, Remove)
 - Chord detection from MIDI notes
+- `_play_notes_sustained()`: Drift-aware playback for standalone cards
 
 ### Autofill System (`app/chord_autofill.py`)
-- Dialog for auto-populating chord cards by key/mode
-- Diatonic chord generation
-- Scale preview
+- `AutofillDialog`: Key/mode selection, emotion presets, algorithmic/MIDI source toggle, generation options (note counts, inversions), chord preview
+- `generate_varied_diatonic_chords()`: Weighted pool generation with scale compliance, lock influence, inversions
+- `generate_single_alternative()`: Per-card regeneration with same parameters
+- `_build_weighted_pool()`: 4-tier candidate pool (diatonic → borrowed → secondary dominants → chromatic)
+- `_analyze_locked_chords()` / `_apply_lock_influence()`: Lock-aware family weighting
+- `apply_inversion()`: Chord voicing inversions
+
+### MIDI Library Loader (`app/midi_chord_loader.py`)
+- Parses MIDI chord filenames for root, quality, and degree
+- Loads note data from `.mid` files via `mido`
+- `load_chords_for_key()`: Returns chord list filtered by key, mode, category
 
 ---
 
