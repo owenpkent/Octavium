@@ -383,6 +383,7 @@ class ReplayCard(QFrame):
         self.actual_notes = actual_notes or []  # Store actual MIDI notes for exact replay
         self.replay_area = replay_area
         self._slot_index = None
+        self._locked = False  # Lock state for regenerate-unlocked workflow
         self._playing_notes: List[int] = []  # Track currently playing notes
         self._pending_timers: List[QTimer] = []  # Track pending delayed note timers
         self._should_play = False  # Flag to prevent delayed notes after release
@@ -421,6 +422,7 @@ class ReplayCard(QFrame):
         layout.addWidget(type_label)
         
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
     
     def dragEnterEvent(self, event):  # type: ignore[override]
         """Accept drag events on the card."""
@@ -529,6 +531,8 @@ class ReplayCard(QFrame):
             
             # Enable playback
             self._should_play = True
+        else:
+            super().mousePressEvent(event)
     
     def mouseMoveEvent(self, event):  # type: ignore[override]
         """Handle drag-to-rearrange when dragging card to another slot, or drag to keyboard for editing."""
@@ -602,6 +606,31 @@ class ReplayCard(QFrame):
                                 self._playing_notes.append(note)
                 except Exception:
                     pass
+    
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        """Draw lock indicator when card is locked."""
+        super().paintEvent(event)
+        if self._locked:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            # Draw a small filled circle with checkmark in top-right corner
+            cx, cy, r = self.width() - 14, 10, 7
+            painter.setBrush(QColor("#2f82e6"))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(cx - r, cy - r, r * 2, r * 2)
+            # Draw checkmark
+            painter.setPen(QColor("#fff"))
+            pen = painter.pen()
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawLine(cx - 3, cy, cx - 1, cy + 3)
+            painter.drawLine(cx - 1, cy + 3, cx + 4, cy - 3)
+            painter.end()
+    
+    def toggle_lock(self) -> None:
+        """Toggle the locked state and update border style."""
+        self._locked = not self._locked
+        self.update()  # Trigger repaint
     
     def _play_notes_sustained(self, notes: List[int]) -> None:
         """Play notes without auto-release (for hold functionality)."""
@@ -790,6 +819,24 @@ class ReplayCard(QFrame):
         # Remove action
         remove_action = menu.addAction("Remove")
         remove_action.triggered.connect(self._remove_card)
+        
+        # Lock / regenerate options (only when card is in the chord monitor grid)
+        monitor = None
+        if hasattr(self.replay_area, '_parent_window'):
+            monitor = self.replay_area._parent_window
+        if monitor is not None and hasattr(monitor, '_regenerate_card'):
+            menu.addSeparator()
+            lock_text = "Unlock" if self._locked else "Lock"
+            lock_action = menu.addAction(lock_text)
+            lock_action.triggered.connect(self.toggle_lock)
+            regen_action = menu.addAction("Generate new chord")
+            regen_action.triggered.connect(
+                lambda: monitor._regenerate_card(self._slot_index) if self._slot_index is not None else None
+            )
+            regen_unlocked_action = menu.addAction("Regenerate unlocked")
+            regen_unlocked_action.triggered.connect(
+                lambda: monitor._regenerate_unlocked() if hasattr(monitor, '_regenerate_unlocked') else None
+            )
         
         menu.exec_(event.globalPos())
     

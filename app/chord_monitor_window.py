@@ -478,15 +478,21 @@ class ChordMonitorReplayArea(QWidget):
         self._play_chord(root_note, chord_type)
     
     def _play_exact_notes(self, notes: List[int]) -> None:
-        """Play exact MIDI notes (preserves octave and voicing)."""
+        """Play exact MIDI notes (preserves octave and voicing) with drift/humanize."""
         if not notes:
             return
         
         # Get velocity from parent window if available
         velocity = 100
+        drift_ms = 0
+        drift_direction = "Up"
         if self._parent_window is not None:
             if hasattr(self._parent_window, '_get_velocity'):
                 velocity = self._parent_window._get_velocity()
+            if hasattr(self._parent_window, '_get_drift'):
+                drift_ms = self._parent_window._get_drift()
+            if hasattr(self._parent_window, '_get_drift_direction'):
+                drift_direction = self._parent_window._get_drift_direction()
         
         # If exclusive mode is enabled on parent, stop any currently active notes first
         try:
@@ -496,13 +502,39 @@ class ChordMonitorReplayArea(QWidget):
         except Exception:
             pass
         
-        # Play all notes
-        for note in notes:
-            try:
-                self.midi.note_on(note, velocity, self.midi_channel)
-                self._active_notes.append(note)
-            except Exception:
-                pass
+        # Order notes based on drift direction
+        ordered_notes = list(notes)
+        if drift_ms > 0 and len(ordered_notes) > 1:
+            if drift_direction == "Down":
+                ordered_notes.reverse()
+            elif drift_direction == "Random":
+                random.shuffle(ordered_notes)
+            
+            # Spread notes over the drift time
+            for i, note in enumerate(ordered_notes):
+                delay_ms = int((i / (len(ordered_notes) - 1)) * drift_ms) if len(ordered_notes) > 1 else 0
+                if delay_ms == 0:
+                    try:
+                        self.midi.note_on(note, velocity, self.midi_channel)
+                        self._active_notes.append(note)
+                    except Exception:
+                        pass
+                else:
+                    def play_delayed(n: int = note, v: int = velocity) -> None:
+                        try:
+                            self.midi.note_on(n, v, self.midi_channel)
+                            self._active_notes.append(n)
+                        except Exception:
+                            pass
+                    QTimer.singleShot(delay_ms, play_delayed)
+        else:
+            # No drift - play all notes immediately
+            for note in ordered_notes:
+                try:
+                    self.midi.note_on(note, velocity, self.midi_channel)
+                    self._active_notes.append(note)
+                except Exception:
+                    pass
         
         # Only schedule note offs if sustain is off
         if not self.sustain:
@@ -517,7 +549,7 @@ class ChordMonitorReplayArea(QWidget):
                     self._active_notes = [n for n in self._active_notes if n not in notes]
                 except Exception:
                     self._active_notes.clear()
-            QTimer.singleShot(200, release_notes)
+            QTimer.singleShot(200 + drift_ms, release_notes)
 
     def _play_chord(self, root_note: int, chord_type: str) -> None:
         """Play a chord using MIDI."""
@@ -711,6 +743,27 @@ class ChordMonitorWindow(QMainWindow):
         """)
         self.autofill_btn.clicked.connect(self._show_autofill_dialog)
         header_layout.addWidget(self.autofill_btn)
+        
+        # Generation options button (edit note counts / inversions on the fly)
+        self.gen_opts_btn = QPushButton("Options...")
+        self.gen_opts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.gen_opts_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2b2f36;
+                border: 2px solid #3b4148;
+                border-radius: 4px;
+                padding: 6px 12px;
+                color: #aaa;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                border: 2px solid #2f82e6;
+                background-color: #3a3f46;
+                color: #fff;
+            }
+        """)
+        self.gen_opts_btn.clicked.connect(self._show_gen_options_dialog)
+        header_layout.addWidget(self.gen_opts_btn)
         
         layout.addLayout(header_layout)
         
@@ -1050,6 +1103,193 @@ class ChordMonitorWindow(QMainWindow):
         except Exception:
             return False
     
+    def _show_gen_options_dialog(self) -> None:
+        """Show dialog to edit generation options (key, mode, note counts, inversions, compliance, lock influence)."""
+        from PySide6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, QLabel,
+            QGroupBox, QPushButton as _QPB, QComboBox, QSlider,
+        )
+        from .chord_autofill import NOTES, NOTE_TO_INDEX, SCALE_MODES
+        
+        ctx = getattr(self, '_autofill_context', None)
+        if not ctx:
+            ctx = {
+                'root_note': 0, 'mode_name': 'Major (Ionian)',
+                'allowed_note_counts': None, 'allowed_inversions': None,
+                'scale_compliance': 1.0, 'lock_influence': 0.0,
+            }
+            self._autofill_context = ctx
+        
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Generation Options")
+        dlg.setMinimumWidth(400)
+        _base_qss = """
+            QDialog { background-color: #1e2127; }
+            QLabel { color: #fff; }
+            QGroupBox { color: #fff; border: 1px solid #3b4148; border-radius: 6px;
+                        margin-top: 12px; padding-top: 8px; }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
+            QComboBox { background-color: #2b2f36; border: 2px solid #3b4148;
+                        border-radius: 6px; padding: 6px 10px; color: #fff; min-width: 140px; }
+            QComboBox:hover { border: 2px solid #2f82e6; }
+            QComboBox::drop-down { border: none; width: 20px; }
+            QComboBox QAbstractItemView { background-color: #2b2f36; border: 2px solid #3b4148;
+                                          selection-background-color: #2f82e6; color: #fff; }
+        """
+        dlg.setStyleSheet(_base_qss)
+        lay = QVBoxLayout(dlg)
+        
+        _slider_qss = """
+            QSlider::groove:horizontal { border: 1px solid #3b4148; height: 6px;
+                background: #2b2f36; border-radius: 3px; }
+            QSlider::handle:horizontal { background: #2f82e6; border: none;
+                width: 14px; margin: -4px 0; border-radius: 7px; }
+            QSlider::sub-page:horizontal { background: #2f82e6; border-radius: 3px; }
+        """
+        
+        # --- Key & Mode ---
+        km_group = QGroupBox("Key && Scale")
+        km_lay = QHBoxLayout(km_group)
+        key_label = QLabel("Key:")
+        km_lay.addWidget(key_label)
+        key_combo = QComboBox()
+        key_combo.addItems(NOTES)
+        cur_root = ctx.get('root_note', 0)
+        key_combo.setCurrentText(NOTES[cur_root % 12] if cur_root < 12 else "C")
+        km_lay.addWidget(key_combo)
+        
+        mode_label = QLabel("Mode:")
+        km_lay.addWidget(mode_label)
+        mode_combo = QComboBox()
+        cur_mode_name = ctx.get('mode_name', 'Major (Ionian)')
+        current_idx = 0
+        current_category = ""
+        for i_m, (m_name, m_data) in enumerate(SCALE_MODES.items()):
+            if m_data.category != current_category:
+                if current_category:
+                    mode_combo.insertSeparator(mode_combo.count())
+                current_category = m_data.category
+            mode_combo.addItem(m_name, m_name)
+            if m_name == cur_mode_name:
+                current_idx = mode_combo.count() - 1
+        mode_combo.setCurrentIndex(current_idx)
+        km_lay.addWidget(mode_combo)
+        km_lay.addStretch()
+        lay.addWidget(km_group)
+        
+        # --- Note Counts ---
+        nc_group = QGroupBox("Note Counts")
+        nc_lay = QHBoxLayout(nc_group)
+        cur_nc = ctx.get('allowed_note_counts')
+        nc3 = QCheckBox("Triads (3)"); nc3.setStyleSheet("color:#fff;")
+        nc3.setChecked(cur_nc is None or 3 in cur_nc)
+        nc4 = QCheckBox("7ths / 6ths (4)"); nc4.setStyleSheet("color:#fff;")
+        nc4.setChecked(cur_nc is None or 4 in cur_nc)
+        nc5 = QCheckBox("9ths / Ext (5)"); nc5.setStyleSheet("color:#fff;")
+        nc5.setChecked(cur_nc is None or 5 in cur_nc)
+        nc_lay.addWidget(nc3); nc_lay.addWidget(nc4); nc_lay.addWidget(nc5)
+        lay.addWidget(nc_group)
+        
+        # --- Inversions ---
+        inv_group = QGroupBox("Inversions")
+        inv_lay = QHBoxLayout(inv_group)
+        cur_inv = ctx.get('allowed_inversions')
+        inv0 = QCheckBox("Root"); inv0.setStyleSheet("color:#fff;")
+        inv0.setChecked(cur_inv is None or 0 in cur_inv)
+        inv1 = QCheckBox("1st"); inv1.setStyleSheet("color:#fff;")
+        inv1.setChecked(cur_inv is not None and 1 in cur_inv)
+        inv2 = QCheckBox("2nd"); inv2.setStyleSheet("color:#fff;")
+        inv2.setChecked(cur_inv is not None and 2 in cur_inv)
+        inv3 = QCheckBox("3rd"); inv3.setStyleSheet("color:#fff;")
+        inv3.setChecked(cur_inv is not None and 3 in cur_inv)
+        inv_lay.addWidget(inv0); inv_lay.addWidget(inv1)
+        inv_lay.addWidget(inv2); inv_lay.addWidget(inv3)
+        lay.addWidget(inv_group)
+        
+        # --- Scale Compliance ---
+        sc_group = QGroupBox("Scale Compliance")
+        sc_lay = QVBoxLayout(sc_group)
+        sc_desc = QLabel("100% = strictly diatonic  ·  lower = allow borrowed / chromatic chords")
+        sc_desc.setStyleSheet("color: #888; font-size: 10px;")
+        sc_lay.addWidget(sc_desc)
+        sc_row = QHBoxLayout()
+        sc_slider = QSlider(Qt.Orientation.Horizontal)
+        sc_slider.setMinimum(0); sc_slider.setMaximum(100)
+        sc_slider.setValue(int(ctx.get('scale_compliance', 1.0) * 100))
+        sc_slider.setFixedHeight(20)
+        sc_slider.setStyleSheet(_slider_qss)
+        sc_val_label = QLabel(f"{sc_slider.value()}%")
+        sc_val_label.setFixedWidth(40)
+        sc_val_label.setStyleSheet("color: #2f82e6; font-weight: bold;")
+        sc_slider.valueChanged.connect(lambda v: sc_val_label.setText(f"{v}%"))
+        sc_row.addWidget(sc_slider)
+        sc_row.addWidget(sc_val_label)
+        sc_lay.addLayout(sc_row)
+        lay.addWidget(sc_group)
+        
+        # --- Lock Influence ---
+        li_group = QGroupBox("Lock Influence")
+        li_lay = QVBoxLayout(li_group)
+        li_desc = QLabel("How much new chords should match the style of your locked chords")
+        li_desc.setStyleSheet("color: #888; font-size: 10px;")
+        li_lay.addWidget(li_desc)
+        li_row = QHBoxLayout()
+        li_slider = QSlider(Qt.Orientation.Horizontal)
+        li_slider.setMinimum(0); li_slider.setMaximum(100)
+        li_slider.setValue(int(ctx.get('lock_influence', 0.0) * 100))
+        li_slider.setFixedHeight(20)
+        li_slider.setStyleSheet(_slider_qss)
+        li_val_label = QLabel(f"{li_slider.value()}%")
+        li_val_label.setFixedWidth(40)
+        li_val_label.setStyleSheet("color: #2f82e6; font-weight: bold;")
+        li_slider.valueChanged.connect(lambda v: li_val_label.setText(f"{v}%"))
+        li_row.addWidget(li_slider)
+        li_row.addWidget(li_val_label)
+        li_lay.addLayout(li_row)
+        lay.addWidget(li_group)
+        
+        # --- Buttons ---
+        btn_lay = QHBoxLayout()
+        btn_lay.addStretch()
+        ok_btn = _QPB("Save")
+        ok_btn.setStyleSheet("""
+            QPushButton { background-color: #2f82e6; border: none; border-radius: 6px;
+                          padding: 8px 20px; color: #fff; font-weight: bold; }
+            QPushButton:hover { background-color: #4a9fff; }
+        """)
+        ok_btn.clicked.connect(dlg.accept)
+        cancel_btn = _QPB("Cancel")
+        cancel_btn.setStyleSheet("""
+            QPushButton { background-color: #2b2f36; border: 2px solid #3b4148;
+                          border-radius: 6px; padding: 8px 16px; color: #fff; }
+            QPushButton:hover { border: 2px solid #2f82e6; background-color: #3a3f46; }
+        """)
+        cancel_btn.clicked.connect(dlg.reject)
+        btn_lay.addWidget(cancel_btn)
+        btn_lay.addWidget(ok_btn)
+        lay.addLayout(btn_lay)
+        
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            # Key & mode
+            ctx['root_note'] = NOTE_TO_INDEX.get(key_combo.currentText(), 0)
+            ctx['mode_name'] = mode_combo.currentData() or 'Major (Ionian)'
+            # Note counts
+            counts = []
+            if nc3.isChecked(): counts.append(3)
+            if nc4.isChecked(): counts.append(4)
+            if nc5.isChecked(): counts.append(5)
+            ctx['allowed_note_counts'] = counts if counts else None
+            # Inversions
+            inversions = []
+            if inv0.isChecked(): inversions.append(0)
+            if inv1.isChecked(): inversions.append(1)
+            if inv2.isChecked(): inversions.append(2)
+            if inv3.isChecked(): inversions.append(3)
+            ctx['allowed_inversions'] = inversions if inversions else None
+            # Sliders
+            ctx['scale_compliance'] = sc_slider.value() / 100.0
+            ctx['lock_influence'] = li_slider.value() / 100.0
+    
     def _show_autofill_dialog(self) -> None:
         """Show the autofill dialog and populate grid with selected chords."""
         try:
@@ -1063,6 +1303,7 @@ class ChordMonitorWindow(QMainWindow):
             
             if dialog.exec() == AutofillDialog.DialogCode.Accepted:
                 chords = dialog.get_chords()
+                self._autofill_context = dialog.get_autofill_context()
                 self._autofill_grid(chords)
         except Exception:
             pass
@@ -1074,6 +1315,17 @@ class ChordMonitorWindow(QMainWindow):
         
         # Clear existing cards first
         self._clear_grid()
+        
+        # Precompute degree lookup from autofill context
+        ctx = getattr(self, '_autofill_context', None)
+        degree_map: dict = {}  # root_midi -> degree_index
+        if ctx:
+            from .chord_autofill import SCALE_MODES
+            mode = SCALE_MODES.get(ctx['mode_name'])
+            if mode:
+                for deg_i, interval in enumerate(mode.intervals):
+                    deg_root = (ctx['root_note'] + interval) % 12
+                    degree_map[deg_root] = deg_i
         
         # Fill slots with chords (up to 16 slots)
         for i, (root, chord_type, notes) in enumerate(chords[:16]):
@@ -1088,6 +1340,105 @@ class ChordMonitorWindow(QMainWindow):
             
             # Create card at slot
             self.replay_area._create_card_at_slot(i, root, chord_type, notes)
+            
+            # Store degree index on card for regeneration
+            card = self.replay_area.grid_positions[i]
+            if card is not None:
+                card._degree_index = degree_map.get(root % 12)  # type: ignore
+    
+    def _get_locked_chords(self) -> list:
+        """Return list of (root, chord_type) for all locked cards."""
+        locked = []
+        for card in self.replay_area.grid_positions:
+            if card is not None and getattr(card, '_locked', False):
+                locked.append((card.root_note, card.chord_type))
+        return locked
+    
+    def _regenerate_card(self, slot_index: int) -> None:
+        """Replace a single card with a new random chord for the same scale degree."""
+        ctx = getattr(self, '_autofill_context', None)
+        if not ctx:
+            return
+        card = self.replay_area.grid_positions[slot_index]
+        if card is None:
+            return
+        
+        degree_index = getattr(card, '_degree_index', None)
+        if degree_index is None:
+            return
+        
+        from .chord_autofill import SCALE_MODES, generate_single_alternative
+        mode = SCALE_MODES.get(ctx['mode_name'])
+        if not mode:
+            return
+        
+        root, new_type, notes = generate_single_alternative(
+            ctx['root_note'], mode, degree_index, card.chord_type,
+            allowed_note_counts=ctx.get('allowed_note_counts'),
+            allowed_inversions=ctx.get('allowed_inversions'),
+            scale_compliance=ctx.get('scale_compliance', 1.0),
+            lock_influence=ctx.get('lock_influence', 0.0),
+            locked_chords=self._get_locked_chords() or None,
+            mode_name=ctx.get('mode_name'),
+        )
+        
+        # Remove old card
+        card.deleteLater()
+        self.replay_area.grid_positions[slot_index] = None
+        if card in self.replay_area.cards:
+            self.replay_area.cards.remove(card)
+        
+        # Create new card
+        self.replay_area._create_card_at_slot(slot_index, root, new_type, notes)
+        new_card = self.replay_area.grid_positions[slot_index]
+        if new_card is not None:
+            new_card._degree_index = degree_index  # type: ignore
+    
+    def _regenerate_unlocked(self) -> None:
+        """Replace all unlocked cards with new random chords, keeping locked cards."""
+        ctx = getattr(self, '_autofill_context', None)
+        if not ctx:
+            return
+        
+        from .chord_autofill import SCALE_MODES, generate_single_alternative
+        mode = SCALE_MODES.get(ctx['mode_name'])
+        if not mode:
+            return
+        
+        locked_info = self._get_locked_chords() or None
+        
+        for slot_index in range(16):
+            card = self.replay_area.grid_positions[slot_index]
+            if card is None:
+                continue
+            if getattr(card, '_locked', False):
+                continue  # Skip locked cards
+            
+            degree_index = getattr(card, '_degree_index', None)
+            if degree_index is None:
+                continue
+            
+            root, new_type, notes = generate_single_alternative(
+                ctx['root_note'], mode, degree_index, card.chord_type,
+                allowed_note_counts=ctx.get('allowed_note_counts'),
+                allowed_inversions=ctx.get('allowed_inversions'),
+                scale_compliance=ctx.get('scale_compliance', 1.0),
+                lock_influence=ctx.get('lock_influence', 0.0),
+                locked_chords=locked_info,
+                mode_name=ctx.get('mode_name'),
+            )
+            
+            # Remove old card
+            card.deleteLater()
+            self.replay_area.grid_positions[slot_index] = None
+            if card in self.replay_area.cards:
+                self.replay_area.cards.remove(card)
+            
+            # Create new card
+            self.replay_area._create_card_at_slot(slot_index, root, new_type, notes)
+            new_card = self.replay_area.grid_positions[slot_index]
+            if new_card is not None:
+                new_card._degree_index = degree_index  # type: ignore
     
     def _clear_grid(self) -> None:
         """Clear all cards from the grid."""
