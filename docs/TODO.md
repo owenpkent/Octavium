@@ -11,6 +11,7 @@
 - [ ] **Chord Monitor - Humanize Option** - Add humanize option to stagger note playback instead of playing all at once
 - [ ] **Auto-Fill Chords with Diatonic Gradient** - Auto-populate Chord Monitor with diatonic chords based on key and mode selection (WIP)
 - [ ] **Chord Card Keyboard Editing** - Right-click chord cards to edit them using an interactive mini-keyboard (WIP)
+- [ ] **Drum Beat Quantization** - Auto-sync mouse clicks to tempo and beat grid for drum sequencing
 
 ## In Progress Features
 
