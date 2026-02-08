@@ -112,9 +112,14 @@ venv\Scripts\activate      # Windows
 # Install dependencies
 pip install -r requirements.txt
 
+# (Optional) Download the MIDI chord library for chord autofill
+.\scripts\fetch_midi_library.ps1
+
 # Run Octavium
 python run.py
 ```
+
+> **Note:** The MIDI chord library (~30 MB) enables the "MIDI Library" autofill source in the Chord Monitor. Octavium works without it — the library can be downloaded later at any time.
 
 ---
 

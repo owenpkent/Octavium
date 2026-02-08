@@ -104,3 +104,15 @@ Thumbs.db
 # Local configuration
 config.local.json
 *.local.*
+
+# Installer build artifacts
+installer/wizard_large.bmp
+installer/wizard_small.bmp
+
+# MIDI chord library (downloaded via scripts/fetch_midi_library.ps1)
+resources/
+
+# Environment files (contain signing thumbprints, etc.)
+.env
+.env.local
+.env.production

@@ -23,8 +23,24 @@ logger = logging.getLogger(__name__)
 
 # Base path to MIDI chord library relative to project root
 _PROJECT_ROOT = Path(__file__).parent.parent
-CHORDS_LIB = _PROJECT_ROOT / "resources" / "free-midi-chords-20231004"
-PROGRESSIONS_LIB = _PROJECT_ROOT / "resources" / "free-midi-progressions-20231004"
+_RESOURCES_DIR = _PROJECT_ROOT / "resources"
+
+
+def _find_library_dir(prefix: str) -> Path:
+    """Find the latest version of a MIDI library directory by prefix."""
+    if _RESOURCES_DIR.exists():
+        candidates = sorted(
+            (d for d in _RESOURCES_DIR.iterdir()
+             if d.is_dir() and d.name.startswith(prefix)),
+            reverse=True,
+        )
+        if candidates:
+            return candidates[0]
+    return _RESOURCES_DIR / prefix
+
+
+CHORDS_LIB = _find_library_dir("free-midi-chords-")
+PROGRESSIONS_LIB = _find_library_dir("free-midi-progressions-")
 
 # Note name mappings
 NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
