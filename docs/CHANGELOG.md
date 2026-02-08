@@ -4,7 +4,26 @@ All notable changes to the Octavium project are documented here.
 
 ---
 
-## February 2026 — Chord Monitor Overhaul
+## v1.1.1 — Build & Distribution Pipeline (February 7, 2026)
+
+### Build System
+- **EV Code Signing** — Octavium.exe signed with OK Studio Inc. certificate (Sectigo EV). No SmartScreen warnings.
+- **Windows Installer** — InnoSetup-based installer with admin install, version detection, upgrade/downgrade handling, and optional MIDI library component.
+- **Automated Pipeline** — `build_installer.ps1` handles build → sign exe → fetch MIDI library → compile installer → sign installer.
+
+### Repository
+- **MIDI Library Externalized** — Removed ~15,000 MIDI files from git tracking (saves ~30 MB per clone). Files are now fetched on-demand via `scripts/fetch_midi_library.ps1`.
+- **Dynamic Library Discovery** — `midi_chord_loader.py` auto-detects whatever MIDI library version is present in `resources/`.
+
+### Documentation
+- Added `docs/CODE_SIGNING.md` — EV signing instructions and troubleshooting
+- Added `THIRD_PARTY_LICENSES.md` — License attribution for MIDI library and dependencies
+- Added `.env.example` — Template for signing environment variables
+- Rewrote `docs/BUILD.md` — Comprehensive build, sign, and release instructions
+
+---
+
+## v1.1.0 — Chord Monitor Overhaul (February 2026)
 
 ### New Features
 
