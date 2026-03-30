@@ -103,6 +103,16 @@ class PadGridWindow(QMainWindow):
         elif hasattr(self.pad_grid, 'midi_channel'):
             self.pad_grid.midi_channel = channel
 
+    def update_midi_out(self, new_midi: MidiOut) -> None:
+        """Update MIDI output (called by launcher on port change)."""
+        try:
+            if hasattr(self.pad_grid, 'set_midi_out'):
+                self.pad_grid.set_midi_out(new_midi)
+            else:
+                self.pad_grid.midi = new_midi
+        except Exception:
+            pass
+
 
 class FadersWindow(QMainWindow):
     """Standalone window for Faders."""
@@ -144,6 +154,16 @@ class FadersWindow(QMainWindow):
         elif hasattr(self.faders, 'midi_channel'):
             self.faders.midi_channel = channel
 
+    def update_midi_out(self, new_midi: MidiOut) -> None:
+        """Update MIDI output (called by launcher on port change)."""
+        try:
+            if hasattr(self.faders, 'set_midi_out'):
+                self.faders.set_midi_out(new_midi)
+            else:
+                self.faders.midi = new_midi
+        except Exception:
+            pass
+
 
 class XYFaderWindow(QMainWindow):
     """Standalone window for XY Fader."""
@@ -184,3 +204,13 @@ class XYFaderWindow(QMainWindow):
             self.xy_fader.set_channel(channel)
         elif hasattr(self.xy_fader, 'midi_channel'):
             self.xy_fader.midi_channel = channel
+
+    def update_midi_out(self, new_midi: MidiOut) -> None:
+        """Update MIDI output (called by launcher on port change)."""
+        try:
+            if hasattr(self.xy_fader, 'set_midi_out'):
+                self.xy_fader.set_midi_out(new_midi)
+            else:
+                self.xy_fader.midi = new_midi
+        except Exception:
+            pass

@@ -678,8 +678,9 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "MIDI Port",
-                "MIDI port is managed by the launcher and cannot be changed.\n\n"
-                "Close this window and use the launcher to open windows with different MIDI settings."
+                "MIDI port is managed by the launcher.\n\n"
+                "Use the 'MIDI Output' dropdown in the Launcher window to select a port, "
+                "then click 'Change' to apply it to all open windows."
             )
             return
         
@@ -713,6 +714,15 @@ class MainWindow(QMainWindow):
             return
         midi = MidiOut(port_name_contains=port)
         self.keyboard.set_midi_out(midi, port_name=port)
+
+    def update_midi_out(self, new_midi):
+        """Update the shared MIDI output (called by the launcher when the port changes)."""
+        try:
+            port_name = getattr(new_midi, '_port_name', self.keyboard.port_name or "")
+            self.keyboard.set_midi_out(new_midi, port_name=port_name)
+            self._update_window_title()
+        except Exception:
+            pass
 
     def new_keyboard_window(self):
         win = MainWindow(self.app_ref, size=self.current_size, port_hint=self.keyboard.port_name or "", midi=self.keyboard.midi)
@@ -812,12 +822,12 @@ class MainWindow(QMainWindow):
             # Restore CCs and values without emitting extra CC messages
             try:
                 if prev_ccs is not None:
-                    new_widget.set_cc_numbers(prev_ccs)
+                    new_widget.set_cc_numbers(list(prev_ccs))
             except Exception:
                 pass
             try:
                 if prev_vals is not None:
-                    new_widget.set_values(prev_vals, emit=False)
+                    new_widget.set_values(list(prev_vals), emit=False)
             except Exception:
                 pass
         elif getattr(self, 'current_layout_type', 'piano') == 'xy':

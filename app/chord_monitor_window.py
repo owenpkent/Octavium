@@ -6,6 +6,8 @@ from PySide6.QtCore import Qt, QMimeData, QEvent, QTimer, QRectF
 from PySide6.QtGui import QIcon, QPainter, QColor, QAction, QActionGroup
 from typing import List, Optional, TYPE_CHECKING, Union, Any
 from pathlib import Path
+import json
+import os
 import random
 from .midi_io import MidiOut
 from .chord_selector import ReplayCard, NOTES, CHORD_DEFINITIONS
@@ -664,12 +666,10 @@ class ChordMonitorWindow(QMainWindow):
         
         # Header with sustain and all notes off buttons
         header_layout = QHBoxLayout()
-        header_label = QLabel("Chord Monitor")
-        header_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #fff; padding: 10px;")
-        header_layout.addWidget(header_label)
+        header_layout.setSpacing(6)
         
         # Sustain button
-        self.sustain_btn = QPushButton("Sustain: Off")
+        self.sustain_btn = QPushButton("Sustain")
         self.sustain_btn.setCheckable(True)
         self.sustain_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.sustain_btn.setStyleSheet("""
@@ -677,7 +677,7 @@ class ChordMonitorWindow(QMainWindow):
                 background-color: #2b2f36;
                 border: 2px solid #3b4148;
                 border-radius: 4px;
-                padding: 6px 16px;
+                padding: 6px 10px;
                 color: #fff;
                 font-weight: bold;
             }
@@ -698,11 +698,11 @@ class ChordMonitorWindow(QMainWindow):
         header_layout.addWidget(self.sustain_btn)
         
         # All Notes Off button - match keyboard/pad grid style
-        self.all_off_btn = QPushButton("All Notes Off")
+        self.all_off_btn = QPushButton("Notes Off")
         self.all_off_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.all_off_btn.setStyleSheet("""
             QPushButton {
-                padding: 6px 16px;
+                padding: 6px 10px;
                 border-radius: 4px;
                 border: 1px solid #888;
                 background-color: #fafafa;
@@ -1029,16 +1029,22 @@ class ChordMonitorWindow(QMainWindow):
         layout.addStretch()
         
         # Calculate appropriate window size for 4x4 grid
-        # Each button is 80x80, with spacing and margins
-        # Need extra space for header and Humanize section
-        btn_size = 80
-        spacing = 10
-        margins = 20
-        width = (btn_size * 4) + (spacing * 3) + margins + 80  # 4 columns + extra width for controls
-        height = (btn_size * 4) + (spacing * 3) + margins + 260  # 4 rows + header + humanize section + extra padding
+        # Width must accommodate 5 header buttons; height must fit humanize + 4x4 grid
+        width = 600
+        height = 720
         self.resize(width, height)
         self.setMinimumSize(width, height)
+        
+        # Restore previously saved pad
+        self._load_grid()
     
+    def update_midi_out(self, new_midi) -> None:
+        """Update MIDI output (called by launcher on port change)."""
+        try:
+            self.replay_area.midi = new_midi
+        except Exception:
+            pass
+
     def set_channel(self, channel: int) -> None:
         """Update MIDI channel."""
         self.replay_area.set_channel(channel)
@@ -1047,7 +1053,6 @@ class ChordMonitorWindow(QMainWindow):
         """Toggle sustain mode."""
         sustain = self.sustain_btn.isChecked()
         self.replay_area.set_sustain(sustain)
-        self.sustain_btn.setText(f"Sustain: {'On' if sustain else 'Off'}")
     
     def _toggle_vel_random(self, checked: bool) -> None:
         """Switch between fixed velocity slider and range slider."""
@@ -1550,8 +1555,64 @@ class ChordMonitorWindow(QMainWindow):
         if hasattr(self, 'replay_area'):
             self.replay_area.set_channel(channel)
     
+    @staticmethod
+    def _pad_save_path() -> Path:
+        """Return the path to the chord pad save file in AppData."""
+        appdata = os.environ.get("APPDATA", str(Path.home()))
+        save_dir = Path(appdata) / "Octavium"
+        save_dir.mkdir(parents=True, exist_ok=True)
+        return save_dir / "chord_pad.json"
+
+    def _save_grid(self) -> None:
+        """Persist the current 4x4 grid to AppData."""
+        try:
+            slots = []
+            for card in self.replay_area.grid_positions:
+                if card is None:
+                    slots.append(None)
+                else:
+                    slots.append({
+                        "root": card.root_note,
+                        "type": card.chord_type,
+                        "notes": list(getattr(card, 'actual_notes', []) or []),
+                    })
+            with open(self._pad_save_path(), "w", encoding="utf-8") as f:
+                json.dump(slots, f)
+        except Exception:
+            pass
+
+    def _load_grid(self) -> None:
+        """Restore the 4x4 grid from AppData if a save file exists."""
+        try:
+            save_path = self._pad_save_path()
+            if not save_path.exists():
+                return
+            with open(save_path, "r", encoding="utf-8") as f:
+                slots = json.load(f)
+            if not isinstance(slots, list):
+                return
+            for i, slot in enumerate(slots[:16]):
+                if slot is None:
+                    continue
+                root = int(slot.get("root", 0))
+                chord_type = str(slot.get("type", "Major"))
+                notes_raw = slot.get("notes", [])
+                notes = [int(n) for n in notes_raw] if notes_raw else None
+                # Remove placeholder at slot if present
+                if i < len(self.replay_area.placeholder_buttons):
+                    ph = self.replay_area.placeholder_buttons[i]
+                    if ph is not None:
+                        ph.hide()
+                        ph.setParent(None)
+                        ph.deleteLater()
+                        self.replay_area.placeholder_buttons[i] = None
+                self.replay_area._create_card_at_slot(i, root, chord_type, notes or [])
+        except Exception:
+            pass
+
     def closeEvent(self, event):  # type: ignore[override]
         """Handle window close event."""
+        self._save_grid()
         # Notify parent to update menu state
         try:
             if hasattr(self, '_parent_main') and self._parent_main is not None:

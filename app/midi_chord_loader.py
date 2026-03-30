@@ -27,7 +27,12 @@ _RESOURCES_DIR = _PROJECT_ROOT / "resources"
 
 
 def _find_library_dir(prefix: str) -> Path:
-    """Find the latest version of a MIDI library directory by prefix."""
+    """Find the latest version of a MIDI library directory by prefix.
+
+    Checks in order:
+    1. resources/free-midi-chords-<date>/  (versioned wrapper from ZIP)
+    2. resources/                          (flat extraction — keys like "01 - C Major - A minor")
+    """
     if _RESOURCES_DIR.exists():
         candidates = sorted(
             (d for d in _RESOURCES_DIR.iterdir()
@@ -36,6 +41,16 @@ def _find_library_dir(prefix: str) -> Path:
         )
         if candidates:
             return candidates[0]
+        # Fallback: chord keys may have been extracted flat into resources/
+        # Detect by looking for any "NN - * Major - * minor" folder directly
+        if prefix.startswith("free-midi-chords"):
+            import re as _re
+            flat_keys = [
+                d for d in _RESOURCES_DIR.iterdir()
+                if d.is_dir() and _re.match(r'^\d+\s*-\s*\S+\s+Major', d.name)
+            ]
+            if flat_keys:
+                return _RESOURCES_DIR
     return _RESOURCES_DIR / prefix
 
 

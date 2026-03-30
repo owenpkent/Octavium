@@ -1,7 +1,7 @@
 """Octavium Launcher Window - Main entry point for selecting windows and keyboards."""
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QPushButton, QGroupBox, QGridLayout, QApplication
+    QPushButton, QGroupBox, QGridLayout, QApplication, QComboBox, QMessageBox
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
@@ -23,20 +23,34 @@ class LauncherWindow(QMainWindow):
         import mido
         
         # Show available MIDI ports
+        self._available_ports: list[str] = []
         try:
-            ports = mido.get_output_names()  # type: ignore[attr-defined]
-            if ports:
-                print(f"Available MIDI ports: {', '.join(ports)}")
+            self._available_ports = list(mido.get_output_names())  # type: ignore[attr-defined]
+            if self._available_ports:
+                print(f"Available MIDI ports: {', '.join(self._available_ports)}")
             else:
                 print("No MIDI ports found")
         except Exception as e:
             print(f"Could not list MIDI ports: {e}")
         
+        # Choose initial port: prefer LoopBe/loopMIDI, then first available
+        initial_port: str | None = None
+        for preferred in ("loopbe", "loopmidi"):
+            for p in self._available_ports:
+                if preferred in p.lower():
+                    initial_port = p
+                    break
+            if initial_port:
+                break
+        if initial_port is None and self._available_ports:
+            initial_port = self._available_ports[0]
+        
+        self._current_port_name: str = initial_port or ""
+        
         try:
-            # Prefer loopMIDI Port 1 if available
-            self.shared_midi = MidiOut(port_name_contains="loopMIDI Port 1", is_shared=True)
+            self.shared_midi = MidiOut(port_name_contains=self._current_port_name, is_shared=True)
             backend = "pygame" if self.shared_midi.use_pygame else "mido"
-            print(f"✓ Launcher initialized with {backend} MIDI backend")
+            print(f"✓ Launcher initialized with {backend} MIDI backend on port: {self._current_port_name}")
         except Exception as e:
             print(f"✗ Warning: Could not initialize MIDI output: {e}")
             self.shared_midi = None
@@ -70,7 +84,92 @@ class LauncherWindow(QMainWindow):
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(subtitle)
         
-        layout.addSpacing(20)
+        layout.addSpacing(10)
+        
+        # MIDI port selector
+        midi_port_row = QHBoxLayout()
+        midi_port_row.setSpacing(8)
+        midi_label = QLabel("MIDI Output:")
+        midi_label.setStyleSheet("font-size: 13px; color: #aaa;")
+        midi_port_row.addWidget(midi_label)
+        self.midi_port_combo = QComboBox()
+        self.midi_port_combo.setMinimumWidth(260)
+        self.midi_port_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #2b2f36;
+                border: 2px solid #3b4148;
+                border-radius: 6px;
+                padding: 6px 32px 6px 10px;
+                color: #fff;
+                font-size: 13px;
+            }
+            QComboBox:hover { border: 2px solid #2f82e6; }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 28px;
+                border-left: 1px solid #3b4148;
+                border-radius: 0 6px 6px 0;
+                background-color: #3b4148;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                width: 0;
+                height: 0;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 6px solid #aaa;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2b2f36;
+                color: #fff;
+                selection-background-color: #2f82e6;
+                border: 1px solid #3b4148;
+            }
+        """)
+        for p in self._available_ports:
+            self.midi_port_combo.addItem(p)
+        if self._current_port_name and self._current_port_name in self._available_ports:
+            self.midi_port_combo.setCurrentIndex(self._available_ports.index(self._current_port_name))
+        midi_port_row.addWidget(self.midi_port_combo, 1)
+        btn_change_port = QPushButton("Change")
+        btn_change_port.setMinimumHeight(34)
+        btn_change_port.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_change_port.setStyleSheet("""
+            QPushButton {
+                background-color: #2b2f36;
+                border: 2px solid #2f82e6;
+                border-radius: 6px;
+                padding: 4px 14px;
+                color: #fff;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #2f82e6; }
+            QPushButton:pressed { background-color: #1a6fcf; }
+        """)
+        btn_change_port.clicked.connect(self._on_change_port_clicked)
+        midi_port_row.addWidget(btn_change_port)
+        btn_refresh_ports = QPushButton("Refresh")
+        btn_refresh_ports.setMinimumHeight(34)
+        btn_refresh_ports.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_refresh_ports.setStyleSheet("""
+            QPushButton {
+                background-color: #2b2f36;
+                border: 2px solid #3b4148;
+                border-radius: 6px;
+                padding: 4px 14px;
+                color: #aaa;
+                font-size: 13px;
+            }
+            QPushButton:hover { border: 2px solid #2f82e6; color: #fff; }
+            QPushButton:pressed { background-color: #3a3f46; }
+        """)
+        btn_refresh_ports.clicked.connect(self._refresh_port_list)
+        midi_port_row.addWidget(btn_refresh_ports)
+        layout.addLayout(midi_port_row)
+        
+        layout.addSpacing(10)
         
         # Keyboards section
         keyboards_group = QGroupBox("Keyboards")
@@ -142,33 +241,7 @@ class LauncherWindow(QMainWindow):
         windows_group.setLayout(windows_layout)
         layout.addWidget(windows_group)
         
-        # Generative section
-        generative_group = QGroupBox("Generative")
-        generative_group.setStyleSheet("""
-            QGroupBox {
-                font-size: 16px;
-                font-weight: bold;
-                color: #fff;
-                border: 2px solid #3b4148;
-                border-radius: 8px;
-                margin-top: 12px;
-                padding-top: 12px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-        """)
-        generative_layout = QGridLayout()
-        generative_layout.setSpacing(10)
-        
-        # Modulune button with distinct styling
-        self.btn_modulune = self._create_modulune_button("Modulune", self._launch_modulune)
-        generative_layout.addWidget(self.btn_modulune, 0, 0, 1, 2)
-        
-        generative_group.setLayout(generative_layout)
-        layout.addWidget(generative_group)
+        # Generative section (Modulune) — roadmap, hidden for now
         
         layout.addStretch()
         
@@ -235,6 +308,63 @@ class LauncherWindow(QMainWindow):
         """)
         btn.clicked.connect(callback)
         return btn
+    
+    def _refresh_port_list(self):
+        """Refresh the list of available MIDI output ports."""
+        try:
+            import mido
+            ports = list(mido.get_output_names())  # type: ignore[attr-defined]
+        except Exception:
+            ports = []
+        self._available_ports = ports
+        self.midi_port_combo.blockSignals(True)
+        self.midi_port_combo.clear()
+        for p in ports:
+            self.midi_port_combo.addItem(p)
+        if self._current_port_name in ports:
+            self.midi_port_combo.setCurrentIndex(ports.index(self._current_port_name))
+        self.midi_port_combo.blockSignals(False)
+    
+    def _on_change_port_clicked(self):
+        """Change the shared MIDI port to the selected one."""
+        port_name = self.midi_port_combo.currentText()
+        if not port_name:
+            QMessageBox.warning(self, "MIDI Port", "No port selected.")
+            return
+        if port_name == self._current_port_name and self.shared_midi is not None:
+            QMessageBox.information(self, "MIDI Port", f"Already using: {port_name}")
+            return
+        self._change_midi_port(port_name)
+    
+    def _change_midi_port(self, port_name: str):
+        """Create a new shared MidiOut on port_name and propagate to all open windows."""
+        from .midi_io import MidiOut
+        try:
+            new_midi = MidiOut(port_name_contains=port_name, is_shared=True)
+        except Exception as e:
+            QMessageBox.critical(self, "MIDI Port Error", f"Could not open port '{port_name}':\n{e}")
+            return
+        # Close the old shared port (it's shared so we must force-close)
+        if self.shared_midi is not None:
+            try:
+                self.shared_midi.is_shared = False
+                self.shared_midi.close()
+            except Exception:
+                pass
+        self.shared_midi = new_midi
+        self._current_port_name = port_name
+        print(f"✓ MIDI port changed to: {port_name}")
+        # Propagate to all open windows
+        alive: list = []
+        for win in self.opened_windows:
+            try:
+                if hasattr(win, 'isVisible') and win.isVisible():
+                    if hasattr(win, 'update_midi_out'):
+                        win.update_midi_out(new_midi)
+                    alive.append(win)
+            except Exception:
+                pass
+        self.opened_windows = alive
     
     def _launch_piano_25(self):
         """Launch 25-key piano window."""

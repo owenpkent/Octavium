@@ -1,9 +1,9 @@
 ; Octavium InnoSetup Installer Script
-; Version 1.1.1
+; Version 1.1.2
 ; https://github.com/owenpkent/Octavium
 
 #define MyAppName "Octavium"
-#define MyAppVersion "1.1.1"
+#define MyAppVersion "1.1.2"
 #define MyAppPublisher "Owen Kent"
 #define MyAppURL "https://github.com/owenpkent/Octavium"
 #define MyAppExeName "Octavium.exe"
@@ -31,7 +31,7 @@ PrivilegesRequired=admin
 
 ; Output settings
 OutputDir=..\dist
-OutputBaseFilename=OctaviumSetup-{#MyAppVersion}
+OutputBaseFilename=Octavium-Setup-{#MyAppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
 LZMAUseSeparateProcess=yes
@@ -90,9 +90,7 @@ Name: "custom"; Description: "Custom installation"; Flags: iscustom
 
 [Components]
 Name: "main"; Description: "{#MyAppName} application"; Types: full compact custom; Flags: fixed
-#if MidiChordsDir != ""
 Name: "midilibrary"; Description: "MIDI Chord Library (~30 MB) — enables chord autofill from real voicings"; Types: full
-#endif
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"
@@ -102,7 +100,7 @@ Name: "startmenuicon"; Description: "Create a &Start Menu shortcut"; GroupDescri
 ; Main executable (must be signed before running InnoSetup)
 Source: "..\dist\Octavium.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: main
 
-; MIDI chord library (optional component)
+; MIDI chord library (optional, bundled when built with MidiChordsDir defined)
 #if MidiChordsDir != ""
 Source: "..\resources\{#MidiChordsDir}\*"; DestDir: "{app}\resources\{#MidiChordsDir}"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: midilibrary
 #endif
@@ -133,8 +131,19 @@ Root: HKLM; Subkey: "Software\{#MyAppPublisher}\{#MyAppName}"; ValueType: string
 
 [Code]
 // -----------------------------------------------------------------------
-// Pascal Script: Previous version detection, removal, and version checks
+// Pascal Script: Previous version detection, removal, version checks,
+// and optional MIDI chord library download.
 // -----------------------------------------------------------------------
+
+#if Defined(MidiChordsDir) && MidiChordsDir != ""
+const MidiBundled = True;
+#else
+const MidiBundled = False;
+#endif
+
+var
+  MidiDownloadPage: TWizardPage;
+  MidiDownloadCheck: TNewCheckBox;
 
 function GetInstalledVersion(): String;
 var
@@ -280,5 +289,113 @@ begin
       Result := False;
       Exit;
     end;
+  end;
+end;
+
+// -----------------------------------------------------------------------
+// MIDI Library download page — shown only when library is NOT bundled
+// and the user selected the midilibrary component.
+// -----------------------------------------------------------------------
+
+procedure CreateMidiDownloadPage;
+var
+  LabelDesc: TNewStaticText;
+begin
+  MidiDownloadPage := CreateCustomPage(
+    wpSelectComponents,
+    'MIDI Chord Library',
+    'Optional: download real chord voicings from the internet'
+  );
+
+  LabelDesc := TNewStaticText.Create(MidiDownloadPage);
+  LabelDesc.Parent := MidiDownloadPage.Surface;
+  LabelDesc.Left   := 0;
+  LabelDesc.Top    := 0;
+  LabelDesc.Width  := MidiDownloadPage.SurfaceWidth;
+  LabelDesc.AutoSize := True;
+  LabelDesc.WordWrap := True;
+  LabelDesc.Caption :=
+    'The MIDI Chord Library provides real chord voicings for the Chord Monitor autofill feature.'  + #13#10 + #13#10 +
+    'The library is free and open-source (~30 MB download from github.com/ldrolez/free-midi-chords).' + #13#10 + #13#10 +
+    'An internet connection is required. You can also download it later by re-running setup.';
+
+  MidiDownloadCheck := TNewCheckBox.Create(MidiDownloadPage);
+  MidiDownloadCheck.Parent  := MidiDownloadPage.Surface;
+  MidiDownloadCheck.Left    := 0;
+  MidiDownloadCheck.Top     := LabelDesc.Top + LabelDesc.Height + 16;
+  MidiDownloadCheck.Width   := MidiDownloadPage.SurfaceWidth;
+  MidiDownloadCheck.Caption := 'Download and install the MIDI Chord Library now (recommended)';
+  MidiDownloadCheck.Checked := True;
+end;
+
+procedure InitializeWizard;
+begin
+  // Only show the download page when the library was NOT bundled at build time
+  if not MidiBundled then
+    CreateMidiDownloadPage;
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  // Skip the download page if library is bundled OR midilibrary component not selected
+  if (MidiDownloadPage <> nil) and (PageID = MidiDownloadPage.ID) then
+    Result := MidiBundled or not IsComponentSelected('midilibrary');
+end;
+
+procedure DownloadMidiLibrary;
+var
+  Script: String;
+  TmpScript: String;
+  ResultCode: Integer;
+begin
+  WizardForm.StatusLabel.Caption := 'Downloading MIDI Chord Library...';
+  WizardForm.ProgressGauge.Style := npbstMarquee;
+
+  TmpScript := ExpandConstant('{tmp}\fetch_midi.ps1');
+
+  // Inline PowerShell: download latest free-midi-chords release from GitHub
+  Script :=
+    '$dest = ''' + ExpandConstant('{app}\resources') + ''';' + #13#10 +
+    'New-Item -ItemType Directory -Force -Path $dest | Out-Null;' + #13#10 +
+    '$api = ''https://api.github.com/repos/ldrolez/free-midi-chords/releases/latest'';' + #13#10 +
+    '$rel = Invoke-RestMethod -Uri $api -Headers @{''User-Agent''=''Octavium-Setup''} -TimeoutSec 30;' + #13#10 +
+    'foreach ($asset in $rel.assets) {' + #13#10 +
+    '  if ($asset.name -match ''\\.zip$'') {' + #13#10 +
+    '    $zip = Join-Path $env:TEMP $asset.name;' + #13#10 +
+    '    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -TimeoutSec 300;' + #13#10 +
+    '    Expand-Archive -Path $zip -DestinationPath $dest -Force;' + #13#10 +
+    '    Remove-Item $zip -Force -ErrorAction SilentlyContinue;' + #13#10 +
+    '  }' + #13#10 +
+    '}';
+
+  SaveStringToFile(TmpScript, Script, False);
+
+  if not Exec('powershell.exe',
+      '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + TmpScript + '"',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+  begin
+    MsgBox(
+      'Could not download the MIDI Chord Library.' + #13#10 + #13#10 +
+      'You can download it manually later from:' + #13#10 +
+      'https://github.com/ldrolez/free-midi-chords/releases' + #13#10 + #13#10 +
+      'Extract the zip files into: ' + ExpandConstant('{app}\resources'),
+      mbInformation, MB_OK);
+  end;
+
+  DeleteFile(TmpScript);
+  WizardForm.ProgressGauge.Style := npbstNormal;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    // Download library if: not bundled, component selected, and user checked the download box
+    if (not MidiBundled) and
+       IsComponentSelected('midilibrary') and
+       (MidiDownloadCheck <> nil) and
+       MidiDownloadCheck.Checked then
+      DownloadMidiLibrary;
   end;
 end;

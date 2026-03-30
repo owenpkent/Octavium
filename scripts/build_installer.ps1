@@ -24,14 +24,14 @@ $ErrorActionPreference = "Stop"
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-$AppVersion = "1.1.1"
+$AppVersion = "1.1.2"
 
 $scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptDir
 
 $distDir       = Join-Path $projectRoot "dist"
 $exePath       = Join-Path $distDir "Octavium.exe"
-$installerName = "OctaviumSetup-$AppVersion.exe"
+$installerName = "Octavium-Setup-$AppVersion.exe"
 $installerPath = Join-Path $distDir $installerName
 $issPath       = Join-Path $projectRoot "installer\octavium.iss"
 $specPath      = Join-Path $projectRoot "scripts\Octavium.spec"
@@ -76,7 +76,7 @@ function Find-ISCC {
     return $null
 }
 
-function Sign-File($filePath) {
+function Invoke-SignFile($filePath) {
     if ($SkipSign) {
         Write-Warn "SKIP: Signing disabled (-SkipSign)"
         return
@@ -155,7 +155,7 @@ if (-not $SkipBuild) {
 
 # Step 2: Sign the exe
 Write-Step "Step 2/4: Signing Octavium.exe"
-Sign-File $exePath
+Invoke-SignFile $exePath
 
 # Step 3: Fetch MIDI library, generate wizard images, compile installer
 Write-Step "Step 3/4: Preparing assets & compiling installer"
@@ -254,7 +254,7 @@ Write-Success "Built: $installerPath"
 
 # Step 4: Sign the installer
 Write-Step "Step 4/4: Signing installer"
-Sign-File $installerPath
+Invoke-SignFile $installerPath
 
 # ---------------------------------------------------------------------------
 # Summary

@@ -161,12 +161,14 @@ class MidiOut:
                 self.port.write_short(status, note, velocity)
             else:
                 self.port.send(mido.Message("note_on", note=note, velocity=velocity, channel=channel))  # type: ignore[attr-defined]
-        except (ValueError, AttributeError, RuntimeError):
-            # Port might be closed or unavailable - silently ignore
-            pass
-        except Exception:
-            # Other errors - also ignore to prevent crashes
-            pass
+            if not getattr(self, '_first_note_logged', False):
+                self._first_note_logged = True
+                backend = "pygame" if self.use_pygame else "mido"
+                print(f"♪ MIDI note_on OK (backend={backend}, note={note}, vel={velocity}, ch={channel})")
+        except Exception as e:
+            if not getattr(self, '_note_on_error_logged', False):
+                self._note_on_error_logged = True
+                print(f"✗ MIDI note_on FAILED: {type(e).__name__}: {e}  (port={self.port}, pygame={self.use_pygame})")
 
     def note_off(self, note: int, channel: int = 0):
         try:
