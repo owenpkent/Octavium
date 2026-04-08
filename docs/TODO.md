@@ -45,9 +45,15 @@
 - [ ] **Voice-Leading Awareness** — Lock influence considers note proximity
 - [ ] **Drum Beat Quantization** — Auto-sync mouse clicks to tempo and beat grid
 
+### Testing & CI
+- [x] **Unit Test Suite** — pytest with 119 tests covering scale quantization, chord suggestions, models, Modulune harmony/melody/rhythm engines
+- [x] **GitHub Actions CI** — Automated test runs on push/PR (Ubuntu + Windows, Python 3.11 + 3.13), Pyright type-checking
+- [ ] **Integration Tests** — MIDI output integration tests (requires loopback MIDI port)
+- [ ] **Test Coverage Reporting** — Add pytest-cov and coverage thresholds
+
 ### Technical Debt
 - [ ] Protocol/ABC for ReplayArea to fix type-checking warnings (see KNOWN_ISSUES.md)
 
 ---
 
-*Last updated: February 7, 2026*
+*Last updated: April 8, 2026*

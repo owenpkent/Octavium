@@ -1,0 +1,10 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.pyright]
+include = ["app", "modulune"]
+exclude = ["**/__pycache__", "build", "dist", ".venv"]
+pythonVersion = "3.13"
+typeCheckingMode = "basic"
+reportMissingImports = true

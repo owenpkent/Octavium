@@ -14,7 +14,9 @@ The root is kept clean with only essential files:
 | `requirements.txt` | Python dependencies (PySide6, mido, pygame) |
 | `README.md` | Project overview, features, and documentation |
 | `LICENSE` | MIT License |
-| `pyrightconfig.json` | Pyright type-checking configuration |
+| `pyproject.toml` | Pytest and Pyright configuration |
+| `pyrightconfig.json` | Pyright type-checking configuration (legacy) |
+| `requirements-dev.txt` | Dev dependencies (pytest, pyright) |
 | `.gitignore` | Git ignore rules |
 | `.gitattributes` | Git attributes configuration |
 
@@ -66,6 +68,17 @@ Algorithmic impressionistic piano generator.
 | `rhythm.py` | Rhythmic pattern generation |
 | `requirements.txt` | Modulune-specific dependencies |
 
+### `tests/` — Unit Tests
+
+| File | Description |
+|------|-------------|
+| `test_scale.py` | Scale quantization logic |
+| `test_models.py` | Pydantic data models |
+| `test_chord_suggestions.py` | Neo-Riemannian, circle of fifths, diatonic suggestions |
+| `test_modulune_harmony.py` | Scales, chords, harmony engine |
+| `test_modulune_melody.py` | Phrase generation, transposition, arpeggios |
+| `test_modulune_rhythm.py` | Timing, tempo, rhythm patterns |
+
 ---
 
 ## Support Folders
@@ -77,6 +90,12 @@ Algorithmic impressionistic piano generator.
 | `Octavium logo.png` | Full logo image |
 | `Octavium icon.png` | App icon (PNG) |
 | `Octavium.ico` | App icon (Windows ICO) |
+
+### `.github/workflows/` — CI/CD
+
+| File | Description |
+|------|-------------|
+| `ci.yml` | GitHub Actions: tests (Ubuntu + Windows, Python 3.11 + 3.13) and Pyright linting |
 
 ### `scripts/` — Build & Utility Scripts
 
