@@ -4,6 +4,27 @@ All notable changes to the Octavium project are documented here.
 
 ---
 
+## Unreleased
+
+### Bug Fixes
+
+#### Rhythm Engine: `generate_varied_pattern` IndexError
+
+**Symptom**: Calling `RhythmEngine.generate_varied_pattern()` would intermittently crash with `IndexError: list index out of range`.
+
+**Root cause**: The method used `for i in range(len(new_durations))` to iterate, but the loop body could insert new elements (when splitting a note) or remove elements (when merging). The `range()` captured the original list length at the start, so after a split made the list longer, subsequent iterations could access indices beyond the new list bounds.
+
+**Fix**: Replaced the `for` loop with a `while i < len(new_durations)` loop that checks the live list length each iteration. On splits, the index advances past the newly inserted element to avoid processing it twice.
+
+**File**: `modulune/rhythm.py`, `generate_varied_pattern` method
+
+### Documentation
+
+- Added beginner-friendly **Continuous Integration (CI)** section to README explaining what CI is, what checks run, and how to read results
+- Added `*.stackdump` to `.gitignore`
+
+---
+
 ## v1.1.1 — Build & Distribution Pipeline (February 7, 2026)
 
 ### Build System

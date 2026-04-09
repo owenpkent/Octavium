@@ -380,7 +380,8 @@ class RhythmEngine:
         new_accents = list(base_pattern.accents)
         
         # Apply random variations
-        for i in range(len(new_durations)):
+        i = 0
+        while i < len(new_durations):
             if random.random() < 0.3:
                 # Split or merge notes
                 if random.random() < 0.5 and new_durations[i] >= 0.5:
@@ -389,11 +390,13 @@ class RhythmEngine:
                     new_durations[i] = half
                     new_durations.insert(i + 1, half)
                     new_accents.insert(i + 1, new_accents[i] * 0.7)
+                    i += 1  # skip the newly inserted element
                 elif i < len(new_durations) - 1:
                     # Merge
                     new_durations[i] += new_durations[i + 1]
                     new_durations.pop(i + 1)
                     new_accents.pop(i + 1)
+            i += 1
         
         # Vary accents
         for i in range(len(new_accents)):

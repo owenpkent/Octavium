@@ -130,6 +130,62 @@ python -m pytest tests/ -v
 
 ---
 
+## Continuous Integration (CI)
+
+CI stands for **Continuous Integration** — it means every time code is pushed to `main` (or a pull request is opened against it), GitHub automatically runs checks to make sure nothing is broken. You don't have to run anything manually — GitHub does it for you in the cloud.
+
+The CI configuration lives in `.github/workflows/ci.yml`. Here's what it does:
+
+### What gets checked
+
+| Check | What it does | Why it matters |
+|-------|-------------|----------------|
+| **Tests** | Runs the full test suite (`pytest`) | Catches bugs before they reach `main` |
+| **Type checking** | Runs Pyright on core logic modules | Catches type errors (e.g., passing a string where a number is expected) |
+
+### How the test job works
+
+1. GitHub spins up fresh virtual machines (Ubuntu **and** Windows)
+2. It installs Python (both 3.11 and 3.13, so we test multiple versions)
+3. It installs the dev dependencies from `requirements-dev.txt`
+4. It runs `python -m pytest tests/ -v` — the same command you'd run locally
+
+This means tests run on **4 combinations**: Ubuntu + Python 3.11, Ubuntu + Python 3.13, Windows + Python 3.11, Windows + Python 3.13. If any combination fails, the whole check fails — so we know the code works everywhere.
+
+### How the lint job works
+
+1. GitHub spins up an Ubuntu machine with Python 3.13
+2. It installs both production and dev dependencies (Pyright needs to see the real imports)
+3. It runs Pyright on the **pure-logic modules** — files that don't depend on the GUI:
+   - `app/scale.py`, `app/models.py`, `app/chord_suggestions.py`, `app/preferences.py`
+   - `modulune/harmony.py`, `modulune/melody.py`, `modulune/rhythm.py`
+
+We only type-check these files because the GUI modules (PySide6/pygame) have complex types that aren't worth fighting with Pyright over. The pure-logic modules are where type safety matters most.
+
+### How to read CI results
+
+- Go to the **Actions** tab on the GitHub repo
+- Green checkmark = all checks passed
+- Red X = something failed — click into the failed job to see the error output
+- CI runs automatically on every push and PR; you never need to trigger it manually
+
+### Running checks locally
+
+You can run the same checks locally before pushing:
+
+```bash
+# Run tests (same as CI)
+python -m pytest tests/ -v
+
+# Run type checking (same as CI lint job)
+pip install pyright
+pyright app/scale.py app/models.py app/chord_suggestions.py app/preferences.py modulune/harmony.py modulune/melody.py modulune/rhythm.py
+```
+
+If these pass locally, they'll pass in CI.
+
+---
+
 ## Usage
 
 ### Launcher Window

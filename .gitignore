@@ -101,6 +101,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Crash dumps
+*.stackdump
+
 # Local configuration
 config.local.json
 *.local.*
