@@ -10,7 +10,7 @@ SCALES = {
 def quantize(note: int, scale_name: str, custom: List[int] | None = None) -> int:
     if scale_name == "chromatic":
         return note
-    pcs = SCALES.get(scale_name) if scale_name != "custom" else (custom or SCALES["chromatic"])
+    pcs = (custom or SCALES["chromatic"]) if scale_name == "custom" else SCALES.get(scale_name, SCALES["chromatic"])
     pc = note % 12
     if pc in pcs:
         return note

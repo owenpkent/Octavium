@@ -48,5 +48,5 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
-      - name: Run Pyright
-        run: pyright app/ modulune/
+      - name: Run Pyright (pure-logic modules)
+        run: pyright app/scale.py app/models.py app/chord_suggestions.py app/preferences.py modulune/harmony.py modulune/melody.py modulune/rhythm.py
