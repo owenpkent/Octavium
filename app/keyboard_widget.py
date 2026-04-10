@@ -745,8 +745,8 @@ class KeyboardWidget(QWidget):
         header_row1.addWidget(self.oct_minus_btn)
         header_row1.addWidget(self.oct_label)
         header_row1.addWidget(self.oct_plus_btn)
-        # Chord card (shown when chord monitor is on and chord is detected)
-        # Also serves as drop target for editing chords from Chord Monitor
+        # Chord card (shown when chord detection is on)
+        # Also serves as drop target for editing chords from Chord Pad
         self.current_chord_card: Optional[QFrame] = None
         self.chord_card_container = ChordDropTarget(self)
         # Always keep container at fixed size to prevent UI shifting

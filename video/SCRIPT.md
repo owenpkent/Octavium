@@ -108,7 +108,7 @@ It makes harmonic relationships *visual*. You can literally *see* how notes rela
 
 **[DEMO - Quick tour]**
 
-There's also a Chord Monitor for saving and playing chord cards... a 4x4 pad grid for drums... CC faders... and an XY pad for expressive control.
+There's also a Chord Pad for saving and playing chord cards... a 4x4 pad grid for drums... CC faders... and an XY pad for expressive control.
 
 All mouse-driven. All accessible.
 
@@ -197,7 +197,7 @@ And hey — *happy music making*.
 0:00 - What is Octavium?
 0:30 - Why I built this (accessibility & universal design)
 1:15 - Core keyboard demo
-2:15 - Advanced surfaces (Harmonic Table, Chord Monitor, etc.)
+2:15 - Advanced surfaces (Harmonic Table, Chord Pad, etc.)
 3:00 - Modulune: generative music
 3:45 - Technical background
 4:15 - How to get involved

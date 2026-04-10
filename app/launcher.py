@@ -228,7 +228,7 @@ class LauncherWindow(QMainWindow):
         windows_layout.setSpacing(10)
         
         # Window buttons
-        self.btn_chord_monitor = self._create_launch_button("Chord Monitor", self._launch_chord_monitor)
+        self.btn_chord_monitor = self._create_launch_button("Chord Pad", self._launch_chord_monitor)
         self.btn_pad_grid = self._create_launch_button("Pad Grid", self._launch_pad_grid)
         self.btn_faders = self._create_launch_button("Faders", self._launch_faders)
         self.btn_xy_fader = self._create_launch_button("XY Fader", self._launch_xy_fader)
@@ -417,7 +417,7 @@ class LauncherWindow(QMainWindow):
                 window.show()
                 self.opened_windows.append(window)
             except Exception as e:
-                print(f"Error launching Chord Monitor: {e}")
+                print(f"Error launching Chord Pad: {e}")
                 import traceback
                 traceback.print_exc()
         else:

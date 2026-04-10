@@ -77,7 +77,7 @@ It makes harmonic relationships visual. You can literally see how notes relate t
 
 [DEMO - Quick tour]
 
-There's also a Chord Monitor for saving and playing chord cards... a 4x4 pad grid for drums... CC faders... and an XY pad for expressive control.
+There's also a Chord Pad for saving and playing chord cards... a 4x4 pad grid for drums... CC faders... and an XY pad for expressive control.
 
 All mouse-driven. All accessible.
 

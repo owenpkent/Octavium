@@ -315,7 +315,7 @@ begin
   LabelDesc.AutoSize := True;
   LabelDesc.WordWrap := True;
   LabelDesc.Caption :=
-    'The MIDI Chord Library provides real chord voicings for the Chord Monitor autofill feature.'  + #13#10 + #13#10 +
+    'The MIDI Chord Library provides real chord voicings for the Chord Pad autofill feature.'  + #13#10 + #13#10 +
     'The library is free and open-source (~30 MB download from github.com/ldrolez/free-midi-chords).' + #13#10 + #13#10 +
     'An internet connection is required. You can also download it later by re-running setup.';
 

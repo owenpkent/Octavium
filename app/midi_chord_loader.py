@@ -114,7 +114,7 @@ class MidiChord:
         return f"{self.root} {self.quality}"
 
     def as_autofill_tuple(self) -> Tuple[int, str, List[int]]:
-        """Return (root_note, chord_type, midi_notes) for chord monitor grid."""
+        """Return (root_note, chord_type, midi_notes) for chord pad grid."""
         return (self.root_midi, self.quality, list(self.notes))
 
 

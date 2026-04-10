@@ -28,10 +28,10 @@ The two untracked MIDI libraries (`free-midi-chords-20231004` and `free-midi-pro
 
 ---
 
-## Application 1: Chord Monitor Auto-Population
+## Application 1: Chord Pad Auto-Population
 
 ### Current State
-The Chord Monitor has an "Autofill" feature (`chord_autofill.py`) that generates diatonic chords programmatically from `SCALE_MODES` definitions.
+The Chord Pad has an "Autofill" feature (`chord_autofill.py`) that generates diatonic chords programmatically from `SCALE_MODES` definitions.
 
 ### Enhancement: MIDI File-Based Autofill
 
@@ -77,7 +77,7 @@ def load_chords_for_key(key: str, mode: str = "Major") -> List[MidiChord]:
 ```
 
 #### User Flow
-1. User clicks "Autofill..." in Chord Monitor
+1. User clicks "Autofill..." in Chord Pad
 2. Dialog shows Key and Mode selection (existing)
 3. **New:** "Source" dropdown: `Algorithmic` | `MIDI Library`
 4. If MIDI Library selected:
@@ -106,7 +106,7 @@ New standalone window: **Progression Browser** — browse, preview, and load cho
 | **Search by Numerals** | Find "I V vi IV" progressions |
 | **Style Filter** | basic4, alt4, hiphop rhythmic variants |
 | **Preview Playback** | Click to hear progression with timing |
-| **Load to Monitor** | Drag or click to populate Chord Monitor grid |
+| **Load to Monitor** | Drag or click to populate Chord Pad grid |
 
 #### UI Mockup
 
@@ -156,7 +156,7 @@ class ProgressionBrowserWindow(QMainWindow):
         ...
     
     def _load_to_monitor(self, progression: ProgressionInfo):
-        """Send chords to Chord Monitor grid."""
+        """Send chords to Chord Pad grid."""
         ...
 ```
 
@@ -225,7 +225,7 @@ def get_empirical_suggestions(current_chord: str, key: str) -> List[ChordSuggest
 
 ### Concept
 Allow users to drag MIDI files directly from system file browser onto:
-- **Chord Monitor**: Populate cards with chord data
+- **Chord Pad**: Populate cards with chord data
 - **Keyboard Widget**: Load and play the chord
 - **Progression Browser**: Queue for preview
 

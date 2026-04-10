@@ -44,7 +44,7 @@ The MIDI chord library (~30 MB, ~15,000 files) is **not** stored in the git repo
 
 This downloads the latest release from [ldrolez/free-midi-chords](https://github.com/ldrolez/free-midi-chords) and extracts it into `resources/`. The library is MIT-licensed (see `THIRD_PARTY_LICENSES.md`).
 
-The application works without the MIDI library — the "MIDI Library" autofill source will simply be unavailable in the Chord Monitor.
+The application works without the MIDI library — the "MIDI Library" autofill source will simply be unavailable in the Chord Pad.
 
 To re-download or update to a newer version:
 ```powershell

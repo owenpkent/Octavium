@@ -33,7 +33,7 @@ This document explores integration possibilities between Octavium and the mcp-vs
 │                        Octavium (Python/Qt)                     │
 │                                                                 │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
-│  │  Launcher    │  │  Keyboards   │  │  Chord Monitor       │  │
+│  │  Launcher    │  │  Keyboards   │  │  Chord Pad       │  │
 │  │              │  │  (25-88 key) │  │  (4×4 grid)          │  │
 │  └──────────────┘  └──────────────┘  └──────────────────────┘  │
 │                                                                 │
@@ -176,7 +176,7 @@ public:
 **Use Cases:**
 
 **A. Octavium → Constellation (Chord Context)**
-- User plays chord in Octavium Chord Monitor
+- User plays chord in Octavium Chord Pad
 - Chord sent as MIDI notes to Constellation
 - Constellation's Harmony Engine uses it as context for next chord
 - Constellation generates texture around that harmony
@@ -193,7 +193,7 @@ public:
 - Shared virtual MIDI port: "Octavium-Constellation Bridge"
 
 **Example Workflow:**
-1. User creates chord progression in Octavium Chord Monitor
+1. User creates chord progression in Octavium Chord Pad
 2. Locks favorite chords
 3. Sends to Constellation via MIDI
 4. Constellation analyzes locked chords (lock influence)
@@ -219,7 +219,7 @@ public:
 ```json
 {
   "name": "octavium_set_chord",
-  "description": "Set a chord in the Chord Monitor grid",
+  "description": "Set a chord in the Chord Pad grid",
   "inputSchema": {
     "slot": {"type": "integer", "min": 0, "max": 15},
     "chord": {"type": "string", "example": "Cmaj7"},
@@ -459,7 +459,7 @@ Left-hand textures:
 5. Both output to Reaper for recording
 
 ### Use Case 2: Live Performance
-1. Octavium Chord Monitor: user holds chord cards
+1. Octavium Chord Pad: user holds chord cards
 2. MIDI sent to Constellation VST in Ableton
 3. Constellation generates evolving texture around held chords
 4. User transitions to next chord, Constellation smoothly modulates

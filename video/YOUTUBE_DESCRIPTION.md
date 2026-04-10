@@ -18,7 +18,7 @@ Octavium is an open-source, accessibility-first virtual MIDI keyboard for making
 ✓ Click-and-drag piano keyboard (25 to 88 keys)
 ✓ Sustain and latch modes for building chords
 ✓ Harmonic Table (isomorphic hex layout)
-✓ Chord Monitor with drag-and-drop cards
+✓ Chord Pad with drag-and-drop cards
 ✓ Pad Grid, Faders, XY Pad
 ✓ Modulune: generative impressionistic piano engine
 

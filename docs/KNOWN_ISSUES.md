@@ -10,7 +10,7 @@ These are Pyright warnings in `app/chord_selector.py` related to the `ReplayArea
 
 ### Cause
 
-`ReplayCard` is typed against the base `ReplayArea` class, but when used inside the Chord Monitor, it's actually parented to `ChordMonitorReplayArea` (a subclass defined in `chord_monitor_window.py`). The subclass adds attributes like `grid_layout`, `placeholder_buttons`, `_create_card_at_slot`, and `sustain` that the base class doesn't declare.
+`ReplayCard` is typed against the base `ReplayArea` class, but when used inside the Chord Pad, it's actually parented to `ChordMonitorReplayArea` (a subclass defined in `chord_monitor_window.py`). The subclass adds attributes like `grid_layout`, `placeholder_buttons`, `_create_card_at_slot`, and `sustain` that the base class doesn't declare.
 
 ### Affected Attributes
 
@@ -36,7 +36,7 @@ These can be resolved by either:
 
 ### Drift/Humanize Not Working (February 2026)
 
-**Symptom**: Drift slider had no audible effect on chord monitor cards.
+**Symptom**: Drift slider had no audible effect on chord pad cards.
 
 **Root cause**: `ChordMonitorReplayArea._play_exact_notes()` played all notes in a tight loop, bypassing the drift logic that only existed in `ReplayCard._play_notes_sustained()` (which was never called for monitor cards).
 
@@ -52,7 +52,7 @@ These can be resolved by either:
 
 **Root cause**: Two `contextMenuEvent` definitions in `ReplayCard`. Python silently replaces the first with the second, so the new menu items were overridden.
 
-**Fix**: Merged into a single `contextMenuEvent`. The Lock/Regenerate section is conditionally shown only when the card is inside a Chord Monitor (checks `hasattr(monitor, '_regenerate_card')`).
+**Fix**: Merged into a single `contextMenuEvent`. The Lock/Regenerate section is conditionally shown only when the card is inside a Chord Pad (checks `hasattr(monitor, '_regenerate_card')`).
 
 **Regression risk**: If another `contextMenuEvent` override is added later, the same shadowing bug will recur. **Always search for existing definitions before adding event handlers.**
 

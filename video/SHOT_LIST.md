@@ -23,7 +23,7 @@
 ### SEGMENT 1: Hook & Introduction (0:00 - 0:30)
 | Shot # | Type | Description | Audio | Duration |
 |--------|------|-------------|-------|----------|
-| 1A | Screen capture | Quick montage: clicking piano keys, dragging across keyboard, chord monitor playing | Music/SFX from Octavium | 5s |
+| 1A | Screen capture | Quick montage: clicking piano keys, dragging across keyboard, chord pad playing | Music/SFX from Octavium | 5s |
 | 1B | A-cam (talking head) | Host intro - "What if you could make music..." | Zoom F3 | 25s |
 
 ### SEGMENT 2: The Problem / Why I Built This (0:30 - 1:15)
@@ -47,7 +47,7 @@
 |--------|------|-------------|-------|----------|
 | 4A | Screen capture | Open Harmonic Table, explain layout briefly | Piano sounds + VO | 15s |
 | 4B | Screen capture | Play some harmonically related notes | Piano sounds + VO | 10s |
-| 4C | Screen capture | Quick tour: Chord Monitor, Pad Grid, Faders, XY | Various sounds + VO | 20s |
+| 4C | Screen capture | Quick tour: Chord Pad, Pad Grid, Faders, XY | Various sounds + VO | 20s |
 
 ### SEGMENT 5: Modulune Demo (3:00 - 3:45)
 | Shot # | Type | Description | Audio | Duration |

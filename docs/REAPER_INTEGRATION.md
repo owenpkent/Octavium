@@ -48,7 +48,7 @@ This document explores integration possibilities between Octavium and Reaper DAW
 1. Octavium sends MIDI to virtual port (e.g., "Octavium Out")
 2. Reaper track receives from same virtual port
 3. Reaper routes to VST instruments
-4. Full chord monitor, pad grid, and keyboard functionality
+4. Full chord pad, pad grid, and keyboard functionality
 
 **Advantages:**
 - Works today with zero code changes
@@ -304,7 +304,7 @@ ChordGun (github.com/benjohnson2001/ChordGun) is prior art demonstrating demand 
 - **Scale compliance slider** — Continuous dial from diatonic to chromatic
 - **Lock influence** — Context-aware generation based on existing chords
 - **Emotion presets** — High-level intent ("Dreamy", "Jazzy", "Dark")
-- **Chord Monitor GUI** — Visual 4×4 grid with drag-and-drop
+- **Chord Pad GUI** — Visual 4×4 grid with drag-and-drop
 - **Humanization controls** — Velocity range, note drift, direction
 
 ### Integration Strategy

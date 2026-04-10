@@ -170,7 +170,7 @@ free-midi-progressions-20231004/
 
 ## Key Integration Points
 
-### Chord Monitor (`app/chord_monitor_window.py`)
+### Chord Pad (`app/chord_monitor_window.py`)
 - 4×4 grid of `ReplayCard` widgets
 - Hold-to-play functionality with velocity control
 - Drag-and-drop card rearrangement

@@ -1,4 +1,4 @@
-"""Simplified Chord Monitor Window - just a 2x4 grid replay area."""
+"""Chord Pad Window - a multi-page 4x4 grid for storing and replaying chord cards."""
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QFrame, QSizePolicy, QMainWindow, QPushButton, QSlider, QCheckBox, QComboBox, QMenu
 )
@@ -644,7 +644,7 @@ class ChordMonitorWindow(QMainWindow):
         self._RangeSlider = RangeSlider
         
         self.midi_channel = midi_channel
-        self.setWindowTitle("Chord Monitor")
+        self.setWindowTitle("Chord Pad")
         
         # Set window icon
         try:
@@ -743,6 +743,26 @@ class ChordMonitorWindow(QMainWindow):
         """)
         self.autofill_btn.clicked.connect(self._show_autofill_dialog)
         header_layout.addWidget(self.autofill_btn)
+
+        # Clear All button
+        self.clear_all_btn = QPushButton("Clear All")
+        self.clear_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clear_all_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2b2f36;
+                border: 2px solid #3b4148;
+                border-radius: 4px;
+                padding: 6px 10px;
+                color: #e74c3c;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                border: 2px solid #e74c3c;
+                background-color: #3a3f46;
+            }
+        """)
+        self.clear_all_btn.clicked.connect(self._clear_all_clicked)
+        header_layout.addWidget(self.clear_all_btn)
         
         # Generation options button (edit note counts / inversions on the fly)
         self.gen_opts_btn = QPushButton("Options...")
@@ -1019,24 +1039,112 @@ class ChordMonitorWindow(QMainWindow):
         humanize_layout.addLayout(exclusive_layout)
         
         layout.addWidget(humanize_frame)
-        
+
+        # Multi-page state
+        self._current_page = 0
+        self._pages: List[List[Optional[dict]]] = [[None] * 16]  # Start with 1 page
+
         # Replay area (4x4 grid)
         self.replay_area = ChordMonitorReplayArea(midi_out, midi_channel, central_widget)
         # Store reference to parent window in replay area for velocity access
         self.replay_area._parent_window = self
         layout.addWidget(self.replay_area, 0, Qt.AlignmentFlag.AlignCenter)
-        
+
+        # Page navigation controls
+        page_nav_layout = QHBoxLayout()
+        page_nav_layout.setSpacing(6)
+        page_nav_layout.addStretch()
+
+        _page_btn_qss = """
+            QPushButton {
+                background-color: #2b2f36;
+                border: 2px solid #3b4148;
+                border-radius: 4px;
+                padding: 4px 10px;
+                color: #fff;
+                font-weight: bold;
+                min-width: 28px;
+            }
+            QPushButton:hover {
+                border: 2px solid #2f82e6;
+                background-color: #3a3f46;
+            }
+            QPushButton:disabled {
+                color: #555;
+                border: 2px solid #2b2f36;
+            }
+        """
+
+        self.prev_page_btn = QPushButton("◀")
+        self.prev_page_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.prev_page_btn.setStyleSheet(_page_btn_qss)
+        self.prev_page_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.prev_page_btn.clicked.connect(self._prev_page)
+        page_nav_layout.addWidget(self.prev_page_btn)
+
+        self.page_label = QLabel("Page 1 / 1")
+        self.page_label.setStyleSheet("color: #aaa; font-size: 12px; font-weight: bold; min-width: 80px;")
+        self.page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        page_nav_layout.addWidget(self.page_label)
+
+        self.next_page_btn = QPushButton("▶")
+        self.next_page_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.next_page_btn.setStyleSheet(_page_btn_qss)
+        self.next_page_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.next_page_btn.clicked.connect(self._next_page)
+        page_nav_layout.addWidget(self.next_page_btn)
+
+        # Spacer between nav and add/remove
+        page_nav_layout.addSpacing(12)
+
+        self.add_page_btn = QPushButton("+")
+        self.add_page_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_page_btn.setToolTip("Add page")
+        self.add_page_btn.setStyleSheet(_page_btn_qss)
+        self.add_page_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.add_page_btn.clicked.connect(self._add_page)
+        page_nav_layout.addWidget(self.add_page_btn)
+
+        self.remove_page_btn = QPushButton("−")
+        self.remove_page_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.remove_page_btn.setToolTip("Remove current page")
+        self.remove_page_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2b2f36;
+                border: 2px solid #3b4148;
+                border-radius: 4px;
+                padding: 4px 10px;
+                color: #e74c3c;
+                font-weight: bold;
+                min-width: 28px;
+            }
+            QPushButton:hover {
+                border: 2px solid #e74c3c;
+                background-color: #3a3f46;
+            }
+            QPushButton:disabled {
+                color: #555;
+                border: 2px solid #2b2f36;
+            }
+        """)
+        self.remove_page_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.remove_page_btn.clicked.connect(self._remove_page)
+        page_nav_layout.addWidget(self.remove_page_btn)
+
+        page_nav_layout.addStretch()
+        layout.addLayout(page_nav_layout)
+
         layout.addStretch()
-        
-        # Calculate appropriate window size for 4x4 grid
-        # Width must accommodate 5 header buttons; height must fit humanize + 4x4 grid
+
+        # Calculate appropriate window size for 4x4 grid + page nav
         width = 600
-        height = 720
+        height = 760
         self.resize(width, height)
         self.setMinimumSize(width, height)
-        
+
         # Restore previously saved pad
         self._load_grid()
+        self._update_page_controls()
     
     def update_midi_out(self, new_midi) -> None:
         """Update MIDI output (called by launcher on port change)."""
@@ -1445,6 +1553,90 @@ class ChordMonitorWindow(QMainWindow):
             if new_card is not None:
                 new_card._degree_index = degree_index  # type: ignore
     
+    def _snapshot_current_page(self) -> None:
+        """Save the current grid state into the pages list."""
+        page_data: List[Optional[dict]] = []
+        for card in self.replay_area.grid_positions:
+            if card is None:
+                page_data.append(None)
+            else:
+                page_data.append({
+                    "root": card.root_note,
+                    "type": card.chord_type,
+                    "notes": list(getattr(card, 'actual_notes', []) or []),
+                })
+        self._pages[self._current_page] = page_data
+
+    def _load_page(self, page_index: int) -> None:
+        """Load a page from the pages list into the grid."""
+        self._clear_grid()
+        page_data = self._pages[page_index]
+        for i, slot in enumerate(page_data[:16]):
+            if slot is None:
+                continue
+            root = int(slot.get("root", 0))
+            chord_type = str(slot.get("type", "Major"))
+            notes_raw = slot.get("notes", [])
+            notes = [int(n) for n in notes_raw] if notes_raw else None
+            if i < len(self.replay_area.placeholder_buttons):
+                ph = self.replay_area.placeholder_buttons[i]
+                if ph is not None:
+                    ph.hide()
+                    ph.setParent(None)
+                    ph.deleteLater()
+                    self.replay_area.placeholder_buttons[i] = None
+            self.replay_area._create_card_at_slot(i, root, chord_type, notes or [])
+
+    def _update_page_controls(self) -> None:
+        """Update page label and enable/disable nav buttons."""
+        total = len(self._pages)
+        self.page_label.setText(f"Page {self._current_page + 1} / {total}")
+        self.prev_page_btn.setEnabled(self._current_page > 0)
+        self.next_page_btn.setEnabled(self._current_page < total - 1)
+        self.remove_page_btn.setEnabled(total > 1)
+
+    def _prev_page(self) -> None:
+        """Navigate to the previous page."""
+        if self._current_page <= 0:
+            return
+        self._snapshot_current_page()
+        self._current_page -= 1
+        self._load_page(self._current_page)
+        self._update_page_controls()
+
+    def _next_page(self) -> None:
+        """Navigate to the next page."""
+        if self._current_page >= len(self._pages) - 1:
+            return
+        self._snapshot_current_page()
+        self._current_page += 1
+        self._load_page(self._current_page)
+        self._update_page_controls()
+
+    def _add_page(self) -> None:
+        """Add a new empty page after the current one and navigate to it."""
+        self._snapshot_current_page()
+        self._current_page += 1
+        self._pages.insert(self._current_page, [None] * 16)
+        self._load_page(self._current_page)
+        self._update_page_controls()
+
+    def _remove_page(self) -> None:
+        """Remove the current page (must have at least 1 page)."""
+        if len(self._pages) <= 1:
+            return
+        self._pages.pop(self._current_page)
+        if self._current_page >= len(self._pages):
+            self._current_page = len(self._pages) - 1
+        self._load_page(self._current_page)
+        self._update_page_controls()
+
+    def _clear_all_clicked(self) -> None:
+        """Handle Clear All button click - clear all cards on current page and save."""
+        self._clear_grid()
+        self._snapshot_current_page()
+        self._save_grid()
+
     def _clear_grid(self) -> None:
         """Clear all cards from the grid."""
         # Remove all existing cards
@@ -1564,54 +1756,51 @@ class ChordMonitorWindow(QMainWindow):
         return save_dir / "chord_pad.json"
 
     def _save_grid(self) -> None:
-        """Persist the current 4x4 grid to AppData."""
+        """Persist all pages to AppData."""
         try:
-            slots = []
-            for card in self.replay_area.grid_positions:
-                if card is None:
-                    slots.append(None)
-                else:
-                    slots.append({
-                        "root": card.root_note,
-                        "type": card.chord_type,
-                        "notes": list(getattr(card, 'actual_notes', []) or []),
-                    })
+            # Snapshot current page so in-memory pages list is up to date
+            self._snapshot_current_page()
+            data = {
+                "version": 2,
+                "current_page": self._current_page,
+                "pages": self._pages,
+            }
             with open(self._pad_save_path(), "w", encoding="utf-8") as f:
-                json.dump(slots, f)
+                json.dump(data, f)
         except Exception:
             pass
 
     def _load_grid(self) -> None:
-        """Restore the 4x4 grid from AppData if a save file exists."""
+        """Restore pages from AppData if a save file exists."""
         try:
             save_path = self._pad_save_path()
             if not save_path.exists():
                 return
             with open(save_path, "r", encoding="utf-8") as f:
-                slots = json.load(f)
-            if not isinstance(slots, list):
+                raw = json.load(f)
+
+            # v2 format: {"version": 2, "pages": [...], "current_page": N}
+            if isinstance(raw, dict) and raw.get("version") == 2:
+                pages = raw.get("pages", [[None] * 16])
+                if not pages:
+                    pages = [[None] * 16]
+                self._pages = pages
+                self._current_page = min(raw.get("current_page", 0), len(pages) - 1)
+            elif isinstance(raw, list):
+                # Legacy v1 format: flat list of 16 slots
+                self._pages = [raw[:16] + [None] * max(0, 16 - len(raw))]
+                self._current_page = 0
+            else:
                 return
-            for i, slot in enumerate(slots[:16]):
-                if slot is None:
-                    continue
-                root = int(slot.get("root", 0))
-                chord_type = str(slot.get("type", "Major"))
-                notes_raw = slot.get("notes", [])
-                notes = [int(n) for n in notes_raw] if notes_raw else None
-                # Remove placeholder at slot if present
-                if i < len(self.replay_area.placeholder_buttons):
-                    ph = self.replay_area.placeholder_buttons[i]
-                    if ph is not None:
-                        ph.hide()
-                        ph.setParent(None)
-                        ph.deleteLater()
-                        self.replay_area.placeholder_buttons[i] = None
-                self.replay_area._create_card_at_slot(i, root, chord_type, notes or [])
+
+            self._load_page(self._current_page)
+            self._update_page_controls()
         except Exception:
             pass
 
     def closeEvent(self, event):  # type: ignore[override]
         """Handle window close event."""
+        self._snapshot_current_page()
         self._save_grid()
         # Notify parent to update menu state
         try:

@@ -44,7 +44,7 @@ All notable changes to the Octavium project are documented here.
 
 ---
 
-## v1.1.0 — Chord Monitor Overhaul (February 2026)
+## v1.1.0 — Chord Pad Overhaul (February 2026)
 
 ### New Features
 
@@ -71,7 +71,7 @@ Each chord card in the grid now supports locking. Locked cards are preserved dur
 - **Files**: `app/chord_selector.py` (lock state, context menu), `app/chord_monitor_window.py` (`_regenerate_card`, `_regenerate_unlocked`)
 
 #### Generation Options Dialog
-An **"Options..."** button in the chord monitor header opens a dialog to tweak generation parameters on the fly — no need to re-run the full Autofill dialog.
+An **"Options..."** button in the chord pad header opens a dialog to tweak generation parameters on the fly — no need to re-run the full Autofill dialog.
 
 Contains:
 
@@ -118,11 +118,11 @@ Generated chords can now be voiced in inversions, not just root position.
 
 ### Bug Fixes
 
-#### Drift (Humanize Strum) Not Working on Chord Monitor Cards
+#### Drift (Humanize Strum) Not Working on Chord Pad Cards
 
-**Symptom**: The drift slider had no effect — all notes in a chord played simultaneously when clicking a card in the chord monitor.
+**Symptom**: The drift slider had no effect — all notes in a chord played simultaneously when clicking a card in the chord pad.
 
-**Root cause**: Card clicks route through `mouseReleaseEvent` → `replay_area._play_exact_notes()`. This method played all notes in a tight loop with zero timing. The existing drift code lived in `ReplayCard._play_notes_sustained()`, which was **never called** for chord monitor cards.
+**Root cause**: Card clicks route through `mouseReleaseEvent` → `replay_area._play_exact_notes()`. This method played all notes in a tight loop with zero timing. The existing drift code lived in `ReplayCard._play_notes_sustained()`, which was **never called** for chord pad cards.
 
 **Fix**: Rewrote `ChordMonitorReplayArea._play_exact_notes()` to:
 1. Read `_get_drift()` and `_get_drift_direction()` from the parent window
@@ -134,7 +134,7 @@ Generated chords can now be voiced in inversions, not just root position.
 
 #### Context Menu Not Showing Lock/Regenerate Options
 
-**Symptom**: Right-clicking a `ReplayCard` in the chord monitor only showed "Suggest Next", "Next Chord", "Edit with Keyboard", and "Remove" — none of the new Lock/Regenerate options.
+**Symptom**: Right-clicking a `ReplayCard` in the chord pad only showed "Suggest Next", "Next Chord", "Edit with Keyboard", and "Remove" — none of the new Lock/Regenerate options.
 
 **Root cause**: Two separate `contextMenuEvent` definitions existed in the `ReplayCard` class. The second definition (around line 758) was overriding the first, but only the first had the new menu items.
 
@@ -178,7 +178,7 @@ This context is:
 - Read by `_regenerate_card` and `_regenerate_unlocked` for per-card generation
 
 #### Degree Index Tracking
-Each `ReplayCard` in the chord monitor stores `_degree_index` (the scale degree it was generated from, 0–6). This allows regeneration to produce a new chord **for the same scale degree**, not a random degree.
+Each `ReplayCard` in the chord pad stores `_degree_index` (the scale degree it was generated from, 0–6). This allows regeneration to produce a new chord **for the same scale degree**, not a random degree.
 
 #### Weighted Pool Generation
 `_build_weighted_pool()` constructs a list of `(root, chord_type, notes, weight)` tuples across 4 tiers:

@@ -1,5 +1,5 @@
 """
-Chord Autofill Module for Octavium Chord Monitor.
+Chord Autofill Module for Octavium Chord Pad.
 
 Provides:
 - AutofillDialog: Select key, mode/emotion, and preview chords before filling the grid
@@ -812,7 +812,7 @@ class ChordPreviewWidget(QFrame):
 
 
 class AutofillDialog(QDialog):
-    """Dialog for autofilling the chord monitor with diatonic chords."""
+    """Dialog for autofilling the chord pad with diatonic chords."""
     
     def __init__(self, midi_out: 'MidiOut', midi_channel: int = 0, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -820,7 +820,7 @@ class AutofillDialog(QDialog):
         self.midi_channel = midi_channel
         self._preview_notes: List[int] = []
         
-        self.setWindowTitle("Autofill Chord Monitor")
+        self.setWindowTitle("Autofill Chord Pad")
         self.setMinimumSize(500, 500)
         self.setStyleSheet("""
             QDialog {
@@ -848,7 +848,7 @@ class AutofillDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
         
         # Title
-        title = QLabel("Autofill Chord Monitor")
+        title = QLabel("Autofill Chord Pad")
         title.setStyleSheet("font-size: 18px; font-weight: bold; color: #fff;")
         layout.addWidget(title)
         

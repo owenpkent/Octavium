@@ -1,16 +1,18 @@
 from typing import Tuple
 from types import SimpleNamespace
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSizePolicy, QLabel, QSlider, QCheckBox, QApplication
-from PySide6.QtCore import Qt, QSize, QPoint, QEvent, QTimer, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QPainter, QPainterPath, QColor, QPen, QBrush
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSizePolicy, QLabel, QSlider, QCheckBox, QApplication, QFrame
+from PySide6.QtCore import Qt, QSize, QPoint, QEvent, QTimer, QPropertyAnimation, QEasingCurve, QMimeData
+from PySide6.QtGui import QPainter, QPainterPath, QColor, QPen, QBrush, QDrag
 
 from .midi_io import MidiOut
+from .chord_selector import detect_chord, NOTES
 # Try to reuse the RangeSlider from keyboard_widget; if unavailable (e.g., during
 # import ordering), fall back to a minimal local implementation so the widget
 # still loads and the view can switch correctly.
 try:
-    from .keyboard_widget import RangeSlider  # type: ignore
+    from .keyboard_widget import RangeSlider, KeyboardChordCard  # type: ignore
 except Exception:
+    KeyboardChordCard = None  # type: ignore[assignment,misc]
     class RangeSlider(QWidget):  # type: ignore
         def __init__(self, minimum=1, maximum=127, low=64, high=100, parent=None):
             super().__init__(parent)
@@ -348,6 +350,15 @@ class HarmonicTableWidget(QWidget):
         header.addWidget(self.sustain_btn)
         header.addWidget(self.latch_btn)
         header.addWidget(self.all_off_btn)
+
+        # Chord card display (inline, draggable to Chord Pad)
+        self.current_chord_card = None
+        self.chord_card_container = QWidget(self)
+        self.chord_card_container.setFixedSize(140, 36)
+        _cc_layout = QVBoxLayout(self.chord_card_container)
+        _cc_layout.setContentsMargins(0, 2, 0, 4)
+        header.addWidget(self.chord_card_container)
+
         header.addStretch()
         header.addWidget(self.vel_label)
         header.addWidget(self.vel_slider)
@@ -613,6 +624,18 @@ class HarmonicTableWidget(QWidget):
         # No dynamic rescale here; initial size is computed once based on screen.
         return
 
+    def hideEvent(self, ev):  # type: ignore[override]
+        """Release any stuck notes when widget is hidden."""
+        self._release_drag_state()
+        super().hideEvent(ev)
+
+    def changeEvent(self, ev):  # type: ignore[override]
+        """Release drag state when window is deactivated (loses focus to another window)."""
+        if ev.type() == QEvent.Type.ActivationChange:
+            if not self.isActiveWindow() and self.drag_active:
+                self._release_drag_state()
+        super().changeEvent(ev)
+
     def resizeEvent(self, ev):  # type: ignore[override]
         super().resizeEvent(ev)
         # Keep size; no auto-rescale on resize.
@@ -801,6 +824,7 @@ class HarmonicTableWidget(QWidget):
             pass
         # Highlight all duplicate buttons for this note
         self._set_note_active(note, True)
+        self._update_chord_card()
 
     def _send_note_off(self, note: int):
         try:
@@ -813,7 +837,8 @@ class HarmonicTableWidget(QWidget):
         # Unhighlight all duplicate buttons for this note (unless right-click latched)
         if note not in self._right_click_latched:
             self._set_note_active(note, False)
-    
+        self._update_chord_card()
+
     def _set_note_active(self, note: int, active: bool):
         """Set the _active flag on all buttons for a given note (for duplicate highlighting)."""
         try:
@@ -821,6 +846,46 @@ class HarmonicTableWidget(QWidget):
             for btn in buttons:
                 btn._active = active
                 btn.update()
+        except Exception:
+            pass
+
+    def _update_chord_card(self) -> None:
+        """Update the inline chord card based on currently active notes."""
+        try:
+            if KeyboardChordCard is None:
+                return
+
+            # Remove existing card
+            if self.current_chord_card is not None:
+                self.current_chord_card.deleteLater()
+                self.current_chord_card = None
+
+            card_layout = self.chord_card_container.layout()
+            if card_layout is None:
+                card_layout = QVBoxLayout(self.chord_card_container)
+                card_layout.setContentsMargins(0, 2, 0, 4)
+            else:
+                while card_layout.count():
+                    item = card_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+
+            active_notes = sorted(self._active_notes)
+            if not active_notes:
+                return
+
+            if len(active_notes) == 1:
+                note = active_notes[0]
+                root_pc = note % 12
+                card = KeyboardChordCard(root_pc, "Note", active_notes, self.chord_card_container)
+            else:
+                root_pc, chord_type = detect_chord(active_notes)
+                if root_pc is None or chord_type is None:
+                    return
+                card = KeyboardChordCard(root_pc, chord_type, active_notes, self.chord_card_container)
+
+            card_layout.addWidget(card)
+            self.current_chord_card = card
         except Exception:
             pass
     
@@ -982,6 +1047,19 @@ class HarmonicTableWidget(QWidget):
             pass
         self._on_btn(r, c, active)
 
+    def _release_drag_state(self) -> None:
+        """Clean up any active drag state - release notes, mouse grab, flags."""
+        if self._drag_current is not None:
+            self._set_button_active(self._drag_current, False)
+            self._drag_current = None
+        self.drag_active = False
+        if self._mouse_grabbed:
+            try:
+                self._grid.releaseMouse()
+            except Exception:
+                pass
+            self._mouse_grabbed = False
+
     def _handle_press(self, r: int, c: int):
         # Latch mode: toggle note on press and do not engage drag
         if self.latch:
@@ -1009,23 +1087,18 @@ class HarmonicTableWidget(QWidget):
                 except Exception:
                     pass
             # Ensure drag state is off in latch
-            if self.drag_active and self._mouse_grabbed:
-                try:
-                    self._grid.releaseMouse()
-                except Exception:
-                    pass
-                self._mouse_grabbed = False
-            self.drag_active = False
-            self._drag_current = None
+            self._release_drag_state()
             return
-        # Momentary mode: start a drag and activate the pressed button
+        # Momentary mode: clean up any stale drag state before starting fresh
+        if self.drag_active or self._drag_current is not None:
+            self._release_drag_state()
         self.drag_active = True
-        if not self._mouse_grabbed:
-            try:
-                self._grid.grabMouse()
-                self._mouse_grabbed = True
-            except Exception:
-                self._mouse_grabbed = False
+        # Always (re-)grab mouse for reliable release tracking
+        try:
+            self._grid.grabMouse()
+            self._mouse_grabbed = True
+        except Exception:
+            self._mouse_grabbed = False
         new_coords = (r, c)
         if self._drag_current != new_coords:
             if self._drag_current is not None:
@@ -1035,17 +1108,7 @@ class HarmonicTableWidget(QWidget):
 
     def _handle_release(self, r: int, c: int):
         # On mouse release, deactivate whichever button is currently active
-        if self.drag_active:
-            if self._drag_current is not None:
-                self._set_button_active(self._drag_current, False)
-                self._drag_current = None
-        self.drag_active = False
-        if self._mouse_grabbed:
-            try:
-                self._grid.releaseMouse()
-            except Exception:
-                pass
-            self._mouse_grabbed = False
+        self._release_drag_state()
 
     # Called by buttons to continue a drag when mouse moves
     def _drag_update_from_global(self, gpt):
@@ -1112,16 +1175,7 @@ class HarmonicTableWidget(QWidget):
                     self._set_button_active(new_coords, True)
                 return False
             if et == QEvent.MouseButtonRelease and self.drag_active:
-                if self._drag_current is not None:
-                    self._set_button_active(self._drag_current, False)
-                    self._drag_current = None
-                self.drag_active = False
-                if self._mouse_grabbed:
-                    try:
-                        self._grid.releaseMouse()
-                    except Exception:
-                        pass
-                    self._mouse_grabbed = False
+                self._release_drag_state()
                 return False
         return super().eventFilter(obj, ev)
 

@@ -13,7 +13,7 @@ Octavium includes or depends on the following third-party projects.
 - **Source:** [github.com/ldrolez/free-midi-chords](https://github.com/ldrolez/free-midi-chords)
 - **Files:** `resources/free-midi-chords-20231004/`, `resources/free-midi-progressions-20231004/`
 
-These MIDI files are bundled with the installer and used by the Chord Monitor's "MIDI Library" autofill source.
+These MIDI files are bundled with the installer and used by the Chord Pad's "MIDI Library" autofill source.
 
 ```
 MIT License

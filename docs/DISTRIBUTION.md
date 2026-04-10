@@ -48,7 +48,7 @@
 4. Upload `OctaviumSetup-1.1.1.exe` as the deliverable
 5. Set pricing: Pay-what-you-want, $9 minimum, $19 suggested
 6. Add product images (use Octavium screenshots + logo)
-7. Add a short demo video or GIF showing the chord monitor in action
+7. Add a short demo video or GIF showing the chord pad in action
 8. Set up a custom URL slug: `/l/octavium`
 9. Publish and share the link
 
@@ -153,7 +153,7 @@ The pay-what-you-want model works well for creative tools:
 ### Before Launch
 - [ ] Compile and sign the full installer (`build_installer.ps1`)
 - [ ] Create Gumroad account and product listing
-- [ ] Record a 60-second demo video (screen capture of chord monitor workflow)
+- [ ] Record a 60-second demo video (screen capture of chord pad workflow)
 - [ ] Take 4-5 polished screenshots for product pages
 - [ ] Write a launch post for Reddit (r/WeAreTheMusicMakers, r/midi)
 - [ ] Set up GitHub Sponsors with tiers

@@ -9,9 +9,9 @@
 - [x] **MIDI Library Externalized** — Removed 15K files from git; fetch via `fetch_midi_library.ps1`
 - [x] **Documentation** — CODE_SIGNING.md, BUILD.md rewrite, THIRD_PARTY_LICENSES.md
 
-### v1.1.0 — Chord Monitor Overhaul (January–February 2026)
-- [x] **Chord Monitor - Hold to Play** — Hold cards to play chords continuously
-- [x] **Chord Monitor - Humanize/Drift** — Stagger note playback with drift slider
+### v1.1.0 — Chord Pad Overhaul (January–February 2026)
+- [x] **Chord Pad - Hold to Play** — Hold cards to play chords continuously
+- [x] **Chord Pad - Humanize/Drift** — Stagger note playback with drift slider
 - [x] **Auto-Fill Chords (Full Grid)** — 16 slots with varied chord types
 - [x] **Chord Card Keyboard Editing** — Right-click → "Edit with Keyboard..."
 - [x] **Lock & Regenerate** — Lock favourite cards, regenerate only unlocked

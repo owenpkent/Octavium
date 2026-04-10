@@ -239,8 +239,8 @@ class MainWindow(QMainWindow):
                 pass
         visual_hold.triggered.connect(_toggle_visual_hold)
         view_menu.addAction(visual_hold)
-        # Chord Monitor option (window only, inline display is always on)
-        chord_monitor = QAction("Chord Monitor", self)
+        # Chord Pad option (window only, inline display is always on)
+        chord_monitor = QAction("Chord Pad", self)
         chord_monitor.setCheckable(True)
         chord_monitor.setChecked(bool(self.menu_actions.get('chord_monitor', False)))
         def _toggle_chord_monitor(checked: bool):
@@ -546,7 +546,7 @@ class MainWindow(QMainWindow):
         kb_shortcuts.triggered.connect(self.show_keyboard_shortcuts)
         help_menu.addAction(kb_shortcuts)
         
-        chord_monitor_help = QAction("Chord Monitor Help", self)
+        chord_monitor_help = QAction("Chord Pad Help", self)
         chord_monitor_help.triggered.connect(self.show_chord_monitor_help)
         help_menu.addAction(chord_monitor_help)
         
@@ -1137,7 +1137,7 @@ class MainWindow(QMainWindow):
         <p>When you launch Octavium, you'll see the <b>Launcher Window</b> with options to open:</p>
         <ul>
             <li><b>Keyboards:</b> 25-key, 49-key, 61-key pianos, and Harmonic Table</li>
-            <li><b>Windows:</b> Chord Monitor, Pad Grid, Faders, and XY Fader</li>
+            <li><b>Windows:</b> Chord Pad, Pad Grid, Faders, and XY Fader</li>
         </ul>
         <p>You can open multiple keyboards and windows simultaneously.</p>
         
@@ -1183,8 +1183,8 @@ class MainWindow(QMainWindow):
         </table>
         
         <h2>Additional Windows</h2>
-        <h3>Chord Monitor</h3>
-        <p>A 4x4 grid for storing and playing chord cards. See <b>Help → Chord Monitor Help</b> for details.</p>
+        <h3>Chord Pad</h3>
+        <p>A 4x4 grid for storing and playing chord cards. See <b>Help → Chord Pad Help</b> for details.</p>
         
         <h3>Pad Grid</h3>
         <p>A 4x4 drum pad grid for triggering samples or drums.</p>
@@ -1213,7 +1213,7 @@ class MainWindow(QMainWindow):
     def show_chord_monitor_help(self):
         """Show Chord Monitor specific help dialog."""
         dialog = QDialog(self)
-        dialog.setWindowTitle("Chord Monitor Help")
+        dialog.setWindowTitle("Chord Pad Help")
         dialog.setMinimumSize(650, 550)
         
         layout = QVBoxLayout(dialog)
@@ -1230,17 +1230,17 @@ class MainWindow(QMainWindow):
         content.setAlignment(Qt.AlignmentFlag.AlignTop)
         
         help_html = """
-        <h1 style="color: #2f82e6;">Chord Monitor Help</h1>
-        
+        <h1 style="color: #2f82e6;">Chord Pad Help</h1>
+
         <h2>Overview</h2>
-        <p>The Chord Monitor is a 4x4 grid for storing, playing, and editing chord cards. 
+        <p>The Chord Pad is a 4x4 grid for storing, playing, and editing chord cards.
         It displays chords you play on the keyboard and lets you replay them with a single click.</p>
-        
+
         <h2>Adding Chords</h2>
         <ul>
             <li>Play a chord on the keyboard with <b>Latch</b> enabled</li>
             <li>The chord card appears in the keyboard's header area</li>
-            <li><b>Drag</b> the card from the keyboard to an empty slot in the Chord Monitor</li>
+            <li><b>Drag</b> the card from the keyboard to an empty slot in the Chord Pad</li>
         </ul>
         
         <h2>Playing Chords</h2>
@@ -1261,7 +1261,7 @@ class MainWindow(QMainWindow):
             <li><b>Drag</b> a chord card to the keyboard's chord display area (in the header)</li>
             <li>The chord's notes will be latched on the keyboard</li>
             <li>Edit the chord using right-click latch to add/remove notes</li>
-            <li>Drag the updated chord back to the Chord Monitor</li>
+            <li>Drag the updated chord back to the Chord Pad</li>
         </ul>
         
         <h2>Chord Suggestions (Right-Click Menu)</h2>

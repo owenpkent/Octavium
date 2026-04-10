@@ -15,7 +15,7 @@ Built with **PySide6**, **mido**, and **pygame**.
 ### Launcher & Multi-Window Support
 - **Launcher Window** — Central hub to open multiple keyboards and windows simultaneously
 - **Multiple Keyboards** — 25-key, 49-key, 61-key, 73-key, 76-key, and 88-key pianos, plus Harmonic Table
-- **Standalone Windows** — Chord Monitor, Pad Grid, Faders, XY Fader, and Modulune can be opened independently
+- **Standalone Windows** — Chord Pad, Pad Grid, Faders, XY Fader, and Modulune can be opened independently
 - **Shared MIDI** — All windows share a single MIDI output to avoid port conflicts
 
 ### Mouse-First Design
@@ -36,7 +36,7 @@ Built with **PySide6**, **mido**, and **pygame**.
 - **Polyphony options** — Limit voices (1–8) or run unlimited
 - **MIDI channel selection** — Route to any of 16 MIDI channels
 
-### Chord Monitor
+### Chord Pad
 - **4×4 grid** of chord cards for quick access to saved chords
 - **Hold-to-play** — Hold a card to play the chord, release to stop
 - **Humanize controls** — Add velocity and timing variation for natural feel
@@ -68,9 +68,9 @@ Built with **PySide6**, **mido**, and **pygame**.
   <img src="screenshots/harmonic-table.png" alt="Harmonic Table" width="700" />
 </p>
 
-### Chord Monitor
+### Chord Pad
 <p align="center">
-  <img src="screenshots/chord-monitor.png" alt="Chord Monitor" width="400" />
+  <img src="screenshots/chord-monitor.png" alt="Chord Pad" width="400" />
 </p>
 
 ### Pad Grid
@@ -119,7 +119,7 @@ pip install -r requirements.txt
 python run.py
 ```
 
-> **Note:** The MIDI chord library (~30 MB) enables the "MIDI Library" autofill source in the Chord Monitor. Octavium works without it — the library can be downloaded later at any time.
+> **Note:** The MIDI chord library (~30 MB) enables the "MIDI Library" autofill source in the Chord Pad. Octavium works without it — the library can be downloaded later at any time.
 
 ### Running Tests
 
@@ -194,7 +194,7 @@ When you run Octavium, the launcher window appears with options to open:
 
 | Keyboards | Windows | Generative |
 |-----------|---------|------------|
-| 25-Key Piano | Chord Monitor | Modulune |
+| 25-Key Piano | Chord Pad | Modulune |
 | 49-Key Piano | Pad Grid | |
 | 61-Key Piano | Faders | |
 | Harmonic Table | XY Fader | |
@@ -229,7 +229,7 @@ Open multiple windows simultaneously — the launcher stays open for easy access
 - **Show Mod Wheel** — Display modulation wheel
 - **Show Pitch Wheel** — Display pitch bend wheel
 - **Hold Visuals During Sustain** — Keep keys visually pressed while sustained
-- **Chord Monitor** — Open the chord monitor window
+- **Chord Pad** — Open the chord pad window
 - **Drag While Sustain** — Allow dragging across keys while sustain is on
 - **Right-Click Latch** — Enable/disable right-click latch behavior
 - **Zoom** — Scale the UI (50%–200%)
