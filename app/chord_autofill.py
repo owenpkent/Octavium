@@ -10,7 +10,7 @@ Provides:
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton,
     QFrame, QGridLayout, QWidget, QSizePolicy, QButtonGroup, QRadioButton,
-    QGroupBox, QScrollArea, QCheckBox
+    QGroupBox, QScrollArea, QCheckBox, QSlider, QSpinBox
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QPainter, QFont
@@ -819,6 +819,7 @@ class AutofillDialog(QDialog):
         self.midi = midi_out
         self.midi_channel = midi_channel
         self._preview_notes: List[int] = []
+        self._markov_slot_numerals: List[str] = []
         
         self.setWindowTitle("Autofill Chord Pad")
         self.setMinimumSize(500, 500)
@@ -885,12 +886,17 @@ class AutofillDialog(QDialog):
         self._midi_radio.setEnabled(midi_library_available())
         self._source_btn_group.addButton(self._midi_radio, 1)
         source_layout.addWidget(self._midi_radio)
-        
+
+        self._markov_radio = QRadioButton("Markov Chain")
+        self._markov_radio.setStyleSheet("color: #fff;")
+        self._source_btn_group.addButton(self._markov_radio, 2)
+        source_layout.addWidget(self._markov_radio)
+
         if not midi_library_available():
             no_lib_label = QLabel("(library not found)")
             no_lib_label.setStyleSheet("color: #888; font-size: 10px;")
             source_layout.addWidget(no_lib_label)
-        
+
         source_layout.addStretch()
         self._source_btn_group.idToggled.connect(self._on_source_changed)
         layout.addWidget(source_group)
@@ -921,7 +927,106 @@ class AutofillDialog(QDialog):
         midi_opts_layout.addStretch()
         self._midi_options_group.setVisible(False)
         layout.addWidget(self._midi_options_group)
-        
+
+        # Markov Chain options (hidden unless Markov is selected)
+        self._markov_options_group = QGroupBox("Markov Chain Options")
+        markov_layout = QVBoxLayout(self._markov_options_group)
+
+        # Row 1: Mode, Key (key reuses existing combo), Length
+        markov_row1 = QHBoxLayout()
+
+        markov_mode_label = QLabel("Mode:")
+        markov_mode_label.setStyleSheet("color: #aaa;")
+        markov_row1.addWidget(markov_mode_label)
+
+        self._markov_mode_combo = QComboBox()
+        self._markov_mode_combo.addItems(["Major", "Minor", "Modal"])
+        self._markov_mode_combo.setStyleSheet(self._combo_style())
+        self._markov_mode_combo.currentTextChanged.connect(self._update_preview)
+        markov_row1.addWidget(self._markov_mode_combo)
+
+        length_label = QLabel("Length:")
+        length_label.setStyleSheet("color: #aaa;")
+        markov_row1.addWidget(length_label)
+
+        self._markov_length_spin = QSpinBox()
+        self._markov_length_spin.setRange(4, 16)
+        self._markov_length_spin.setValue(4)
+        self._markov_length_spin.setStyleSheet(
+            "QSpinBox { background: #2b2f36; color: #fff; border: 2px solid #3b4148; "
+            "border-radius: 6px; padding: 4px 8px; }"
+        )
+        self._markov_length_spin.valueChanged.connect(self._update_preview)
+        markov_row1.addWidget(self._markov_length_spin)
+
+        markov_row1.addStretch()
+        markov_layout.addLayout(markov_row1)
+
+        # Row 2: Temperature slider
+        markov_row2 = QHBoxLayout()
+        temp_label = QLabel("Temperature:")
+        temp_label.setStyleSheet("color: #aaa;")
+        markov_row2.addWidget(temp_label)
+
+        conservative_label = QLabel("Conservative")
+        conservative_label.setStyleSheet("color: #888; font-size: 10px;")
+        markov_row2.addWidget(conservative_label)
+
+        self._markov_temp_slider = QSlider(Qt.Orientation.Horizontal)
+        self._markov_temp_slider.setRange(30, 200)  # 0.3 to 2.0 (×100)
+        self._markov_temp_slider.setValue(100)  # 1.0 default
+        self._markov_temp_slider.setFixedWidth(200)
+        self._markov_temp_slider.valueChanged.connect(self._update_preview)
+        markov_row2.addWidget(self._markov_temp_slider)
+
+        adventurous_label = QLabel("Adventurous")
+        adventurous_label.setStyleSheet("color: #888; font-size: 10px;")
+        markov_row2.addWidget(adventurous_label)
+
+        self._markov_temp_value = QLabel("1.0")
+        self._markov_temp_value.setStyleSheet("color: #fff; min-width: 30px;")
+        self._markov_temp_slider.valueChanged.connect(
+            lambda v: self._markov_temp_value.setText(f"{v / 100:.1f}")
+        )
+        markov_row2.addWidget(self._markov_temp_value)
+
+        markov_row2.addStretch()
+        markov_layout.addLayout(markov_row2)
+
+        # Row 3: Mood filter and start chord
+        markov_row3 = QHBoxLayout()
+
+        mood_label = QLabel("Mood:")
+        mood_label.setStyleSheet("color: #aaa;")
+        markov_row3.addWidget(mood_label)
+
+        self._markov_mood_combo = QComboBox()
+        self._markov_mood_combo.addItem("Any", None)
+        from .chord_progression import get_available_moods
+        for mood in get_available_moods():
+            self._markov_mood_combo.addItem(mood, mood)
+        self._markov_mood_combo.setStyleSheet(self._combo_style())
+        self._markov_mood_combo.currentIndexChanged.connect(self._update_preview)
+        markov_row3.addWidget(self._markov_mood_combo)
+
+        start_label = QLabel("Start:")
+        start_label.setStyleSheet("color: #aaa;")
+        markov_row3.addWidget(start_label)
+
+        self._markov_start_combo = QComboBox()
+        self._markov_start_combo.addItem("Any", None)
+        for token in ["I", "i", "IV", "iv", "V", "vi", "VI", "ii", "iii"]:
+            self._markov_start_combo.addItem(token, token)
+        self._markov_start_combo.setStyleSheet(self._combo_style())
+        self._markov_start_combo.currentIndexChanged.connect(self._update_preview)
+        markov_row3.addWidget(self._markov_start_combo)
+
+        markov_row3.addStretch()
+        markov_layout.addLayout(markov_row3)
+
+        self._markov_options_group.setVisible(False)
+        layout.addWidget(self._markov_options_group)
+
         # Mode/Scale selection with emotion hints
         self._algo_mode_group = QGroupBox("Select Mode / Scale")
         mode_layout = QVBoxLayout(self._algo_mode_group)
@@ -1148,19 +1253,41 @@ class AutofillDialog(QDialog):
     def _is_midi_source(self) -> bool:
         """Return True if MIDI Library source is selected."""
         return self._source_btn_group.checkedId() == 1
-    
+
+    def _is_markov_source(self) -> bool:
+        """Return True if Markov Chain source is selected."""
+        return self._source_btn_group.checkedId() == 2
+
     def _on_source_changed(self, btn_id: int, checked: bool) -> None:
         """Handle source radio button toggle."""
         if not checked:
             return
-        is_midi = (btn_id == 1)
-        self._midi_options_group.setVisible(is_midi)
-        self._algo_mode_group.setVisible(not is_midi)
+        self._midi_options_group.setVisible(btn_id == 1)
+        self._markov_options_group.setVisible(btn_id == 2)
+        self._algo_mode_group.setVisible(btn_id == 0)
         self._update_preview()
     
     def _get_current_chords(self) -> List[Tuple[int, str, List[int]]]:
         """Get chord tuples for the current source/settings (used by preview and fill)."""
-        if self._is_midi_source():
+        if self._is_markov_source():
+            from .chord_progression import generate_and_realize
+            root_note = NOTE_TO_INDEX.get(self.key_combo.currentText(), 0)
+            mode = self._markov_mode_combo.currentText()
+            length = self._markov_length_spin.value()
+            temperature = self._markov_temp_slider.value() / 100.0
+            mood_filter = self._markov_mood_combo.currentData()
+            start_token = self._markov_start_combo.currentData()
+            chords, self._markov_slot_numerals = generate_and_realize(
+                mode=mode,
+                key_root=root_note,
+                length=length,
+                start_token=start_token,
+                temperature=temperature,
+                mood_filter=mood_filter,
+                fill_to=16,
+            )
+            return chords
+        elif self._is_midi_source():
             key = self.key_combo.currentText()
             mode = self._midi_mode_combo.currentText()
             category = self._midi_category_combo.currentText()
@@ -1185,14 +1312,38 @@ class AutofillDialog(QDialog):
             item = self.chord_preview_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        
-        if self._is_midi_source():
+
+        if self._is_markov_source():
+            # Markov Chain source — show generated progression
+            from .chord_progression import generate_and_realize
+            root_note = NOTE_TO_INDEX.get(self.key_combo.currentText(), 0)
+            mode = self._markov_mode_combo.currentText()
+            length = self._markov_length_spin.value()
+            temperature = self._markov_temp_slider.value() / 100.0
+            mood_filter = self._markov_mood_combo.currentData()
+            start_token = self._markov_start_combo.currentData()
+            chords, slot_numerals = generate_and_realize(
+                mode=mode, key_root=root_note, length=length,
+                start_token=start_token, temperature=temperature,
+                mood_filter=mood_filter, fill_to=length,
+            )
+            self._markov_slot_numerals = slot_numerals
+
+            all_notes = []
+            for i, (chord_root, chord_type, notes) in enumerate(chords):
+                degree = slot_numerals[i] if i < len(slot_numerals) else ""
+                preview = ChordPreviewWidget(chord_root, chord_type, notes, degree, self)
+                self.chord_preview_layout.addWidget(preview)
+                all_notes.extend(notes)
+
+            self.mini_keyboard.set_selected_notes(all_notes)
+        elif self._is_midi_source():
             # MIDI Library source
             key = self.key_combo.currentText()
             mode = self._midi_mode_combo.currentText()
             category = self._midi_category_combo.currentText()
             midi_chords = load_chords_for_key(key, mode, category)
-            
+
             all_notes = []
             for mc in midi_chords:
                 preview = ChordPreviewWidget(
@@ -1200,7 +1351,7 @@ class AutofillDialog(QDialog):
                 )
                 self.chord_preview_layout.addWidget(preview)
                 all_notes.extend(mc.notes)
-            
+
             # Update mini keyboard to show loaded chord notes
             self.mini_keyboard.set_selected_notes(all_notes)
         else:
@@ -1210,12 +1361,12 @@ class AutofillDialog(QDialog):
             if mode_name and mode_name in SCALE_MODES:
                 mode = SCALE_MODES[mode_name]
                 chords = generate_diatonic_chords(root_note, mode, octave=4)
-                
+
                 # Roman numeral degrees
                 degrees = ["I", "ii", "iii", "IV", "V", "vi", "vii°"]
                 if "Minor" in mode_name or mode_name in ["Dorian", "Phrygian", "Locrian"]:
                     degrees = ["i", "ii°", "III", "iv", "v", "VI", "VII"]
-                
+
                 # Create preview widgets
                 all_notes = []
                 for i, (chord_root, chord_type, notes) in enumerate(chords):
@@ -1223,7 +1374,7 @@ class AutofillDialog(QDialog):
                     preview = ChordPreviewWidget(chord_root, chord_type, notes, degree, self)
                     self.chord_preview_layout.addWidget(preview)
                     all_notes.extend(notes)
-                
+
                 # Update mini keyboard to show scale notes
                 scale_notes = [(root_note + interval) % 12 + 48 for interval in mode.intervals]  # Octave 4
                 scale_notes.extend([(root_note + interval) % 12 + 60 for interval in mode.intervals])  # Octave 5
@@ -1268,8 +1419,20 @@ class AutofillDialog(QDialog):
     
     def get_autofill_context(self) -> Optional[Dict]:
         """Return context needed for per-card regeneration (key, mode name, root note)."""
+        if self._is_markov_source():
+            slot_numerals = getattr(self, '_markov_slot_numerals', None)
+            if not slot_numerals:
+                return None
+            return {
+                "source": "markov",
+                "mode": self._markov_mode_combo.currentText(),
+                "key_root": NOTE_TO_INDEX.get(self.key_combo.currentText(), 0),
+                "slot_numerals": list(slot_numerals),
+                "temperature": self._markov_temp_slider.value() / 100.0,
+                "mood_filter": self._markov_mood_combo.currentData(),
+            }
         if self._is_midi_source():
-            return None  # Regeneration only for algorithmic mode
+            return None  # Regeneration only for algorithmic/markov mode
         mode_name = self.mode_combo.currentData()
         if mode_name and mode_name in SCALE_MODES:
             return {

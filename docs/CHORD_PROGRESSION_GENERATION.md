@@ -216,8 +216,52 @@ These can be presented as filter checkboxes or a dropdown.
 
 ---
 
+## Markov Chain Generation (Implemented)
+
+A Markov chain generator (`app/chord_progression.py`) learns chord-to-chord transition probabilities from the ~176 unique progressions in the library and generates novel sequences.
+
+### How It Works
+
+1. **Indexing**: On first use, scans all progression filenames (no MIDI parsing needed) and deduplicates by numeral sequence per mode
+2. **Transition table**: Counts bigram transitions (e.g., how often `V` follows `I`) from the unique progressions for each mode (Major, Minor, Modal)
+3. **Generation**: Walks the chain — picks a start token from observed starts, then samples successors weighted by transition counts
+4. **Realization**: Converts numeral tokens to MIDI note tuples using the existing `CHORD_INTERVALS` and `get_chord_notes()` infrastructure
+
+### Controls
+
+| Parameter | Range | Effect |
+|-----------|-------|--------|
+| **Mode** | Major / Minor / Modal | Selects which transition table to use |
+| **Length** | 4–16 | Unique chords before looping to fill 16 slots |
+| **Temperature** | 0.3–2.0 | <1.0 = conservative (common progressions), >1.0 = adventurous (rare transitions) |
+| **Mood filter** | Any / 21 mood tags | Builds table from only progressions matching the mood |
+| **Start chord** | Any / I / IV / vi / etc. | Forces the first chord of the sequence |
+
+### Token Parsing
+
+The generator works at the roman numeral level so it generalizes across keys. Tokens from filenames (`I`, `bVIIM`, `Idom7`, `ivm`, `Vsus2`) are parsed into (semitone offset, chord type) pairs:
+
+- Accidental prefix: `b` = flat, `#` = sharp
+- Case encodes default quality: uppercase = Major, lowercase = Minor
+- Suffixes override quality: `dom7`, `M7`, `m7`, `sus2`, `sus4`, `dim`, `add9`, `6`, `69`
+
+Dead-end handling: if a token has no observed successors, the generator falls back to stripping the quality suffix (e.g., `Vsus2` → `V`), then restarts from the start distribution.
+
+### Per-Card Regeneration
+
+When regenerating a single card in the Chord Pad, the Markov context uses the predecessor card's numeral to sample from the transition distribution, preserving sequential coherence.
+
+### Files
+
+- `app/chord_progression.py` — Pure data module: indexing, table building, generation, realization
+- `app/chord_autofill.py` — "Markov Chain" radio button and options in AutofillDialog
+- `app/chord_monitor_window.py` — Markov-aware per-card and bulk regeneration
+
+---
+
 ## Future Extensions
 
-- **Markov chain generation**: Build a transition probability table from the ~48 progression patterns per mode. Use it to generate novel progressions that still follow the statistical tendencies of the library. Add a "Generate Random" option alongside the curated list.
+- **Progression browser dialog**: A dedicated `ProgressionDialog` for browsing and previewing curated progressions from the library (as described in the UI Integration section above), complementing the Markov generator.
+- **MIDI library voicings for Markov**: Currently the Markov generator uses algorithmic voicings via `get_chord_notes()`. A future enhancement could look up matching voicings from the MIDI library for richer, more realistic chord sounds.
 - **Rhythm variations**: The library includes `pop`, `pop2`, `hiphop2`, and `soul` timing variants under `resources/*/4 Progression/`. These contain the same progressions with different note timing. Could be used for a rhythm-aware playback mode.
 - **Progression chaining**: Allow the user to select multiple short progressions and chain them to fill 16 slots with varied harmonic movement.

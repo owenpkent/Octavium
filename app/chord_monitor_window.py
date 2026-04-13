@@ -1475,16 +1475,20 @@ class ChordMonitorWindow(QMainWindow):
         card = self.replay_area.grid_positions[slot_index]
         if card is None:
             return
-        
+
+        if ctx.get("source") == "markov":
+            self._regenerate_card_markov(slot_index, ctx)
+            return
+
         degree_index = getattr(card, '_degree_index', None)
         if degree_index is None:
             return
-        
+
         from .chord_autofill import SCALE_MODES, generate_single_alternative
         mode = SCALE_MODES.get(ctx['mode_name'])
         if not mode:
             return
-        
+
         root, new_type, notes = generate_single_alternative(
             ctx['root_note'], mode, degree_index, card.chord_type,
             allowed_note_counts=ctx.get('allowed_note_counts'),
@@ -1494,43 +1498,87 @@ class ChordMonitorWindow(QMainWindow):
             locked_chords=self._get_locked_chords() or None,
             mode_name=ctx.get('mode_name'),
         )
-        
+
         # Remove old card
         card.deleteLater()
         self.replay_area.grid_positions[slot_index] = None
         if card in self.replay_area.cards:
             self.replay_area.cards.remove(card)
-        
+
         # Create new card
         self.replay_area._create_card_at_slot(slot_index, root, new_type, notes)
         new_card = self.replay_area.grid_positions[slot_index]
         if new_card is not None:
             new_card._degree_index = degree_index  # type: ignore
+
+    def _regenerate_card_markov(self, slot_index: int, ctx: dict) -> None:
+        """Replace a single card using Markov chain transition from predecessor."""
+        from .chord_progression import regenerate_single, realize_progression
+
+        slot_numerals = ctx.get("slot_numerals", [])
+        predecessor = slot_numerals[slot_index - 1] if slot_index > 0 else None
+        current = slot_numerals[slot_index] if slot_index < len(slot_numerals) else None
+
+        new_numeral = regenerate_single(
+            mode=ctx["mode"],
+            predecessor=predecessor,
+            exclude=current,
+            temperature=ctx.get("temperature", 1.0),
+            mood_filter=ctx.get("mood_filter"),
+        )
+
+        # Update context with new numeral
+        if slot_index < len(slot_numerals):
+            slot_numerals[slot_index] = new_numeral
+
+        # Realize the new chord
+        realized = realize_progression([new_numeral], ctx["key_root"])
+        if not realized:
+            return
+        root, chord_type, notes = realized[0]
+
+        # Remove old card
+        card = self.replay_area.grid_positions[slot_index]
+        if card is not None:
+            card.deleteLater()
+            self.replay_area.grid_positions[slot_index] = None
+            if card in self.replay_area.cards:
+                self.replay_area.cards.remove(card)
+
+        # Create new card
+        self.replay_area._create_card_at_slot(slot_index, root, chord_type, notes)
+        new_card = self.replay_area.grid_positions[slot_index]
+        if new_card is not None:
+            new_card._degree_index = None  # type: ignore
     
     def _regenerate_unlocked(self) -> None:
         """Replace all unlocked cards with new random chords, keeping locked cards."""
         ctx = getattr(self, '_autofill_context', None)
         if not ctx:
             return
-        
+
+        if ctx.get("source") == "markov":
+            self._regenerate_unlocked_markov(ctx)
+            return
+
         from .chord_autofill import SCALE_MODES, generate_single_alternative
         mode = SCALE_MODES.get(ctx['mode_name'])
         if not mode:
             return
-        
+
         locked_info = self._get_locked_chords() or None
-        
+
         for slot_index in range(16):
             card = self.replay_area.grid_positions[slot_index]
             if card is None:
                 continue
             if getattr(card, '_locked', False):
                 continue  # Skip locked cards
-            
+
             degree_index = getattr(card, '_degree_index', None)
             if degree_index is None:
                 continue
-            
+
             root, new_type, notes = generate_single_alternative(
                 ctx['root_note'], mode, degree_index, card.chord_type,
                 allowed_note_counts=ctx.get('allowed_note_counts'),
@@ -1540,18 +1588,28 @@ class ChordMonitorWindow(QMainWindow):
                 locked_chords=locked_info,
                 mode_name=ctx.get('mode_name'),
             )
-            
+
             # Remove old card
             card.deleteLater()
             self.replay_area.grid_positions[slot_index] = None
             if card in self.replay_area.cards:
                 self.replay_area.cards.remove(card)
-            
+
             # Create new card
             self.replay_area._create_card_at_slot(slot_index, root, new_type, notes)
             new_card = self.replay_area.grid_positions[slot_index]
             if new_card is not None:
                 new_card._degree_index = degree_index  # type: ignore
+
+    def _regenerate_unlocked_markov(self, ctx: dict) -> None:
+        """Regenerate all unlocked cards using Markov chain transitions."""
+        for slot_index in range(16):
+            card = self.replay_area.grid_positions[slot_index]
+            if card is None:
+                continue
+            if getattr(card, '_locked', False):
+                continue
+            self._regenerate_card_markov(slot_index, ctx)
     
     def _snapshot_current_page(self) -> None:
         """Save the current grid state into the pages list."""
