@@ -1,3 +1,10 @@
+"""Hexagonal isomorphic harmonic-table controller surface.
+
+Renders an odd-q offset grid of :class:`HexButton` cells whose interval
+geometry preserves the standard harmonic-table adjacencies (perfect fifth
+up, major third upper-right, minor third upper-left).
+"""
+
 from typing import Tuple
 from types import SimpleNamespace
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSizePolicy, QLabel, QSlider, QCheckBox, QApplication, QFrame
@@ -39,7 +46,12 @@ import random
 
 
 class HexButton(QPushButton):
-    """Custom painted hexagonal button in the app's blue theme with octave-based colors."""
+    """Custom-painted hexagonal cell whose color encodes its MIDI octave.
+
+    Behaves as a momentary push-button. The owner widget can also raise an
+    ``_active`` flag to highlight enharmonic duplicates and a ``_latched``
+    flag to persist the active visual state.
+    """
     
     # Octave color palette - distinct colors per octave for visual clarity
     # Format: (fill_color, border_color)
@@ -58,8 +70,15 @@ class HexButton(QPushButton):
     ]
     
     def __init__(self, label: str, size_px: int, parent=None, note: int = 60):
+        """Build a flat-top hex button.
+
+        Args:
+            label: Text drawn inside the hex.
+            size_px: Width of the hex in pixels (height is derived).
+            parent: Optional Qt parent.
+            note: MIDI note number used for octave-based coloring.
+        """
         super().__init__(label, parent)
-        # Non-latching (momentary) behavior by default
         self.setCheckable(False)
         # Visual latch flag managed by owner widget
         self._latched: bool = False
@@ -74,8 +93,8 @@ class HexButton(QPushButton):
         self._height = int(self._size * 0.8660254)
         self.setFixedSize(self._size, self._height)
 
-    # Forward drag moves to owner so we can glide notes
     def mouseMoveEvent(self, ev):  # type: ignore[override]
+        """Forward drag motion to the owner widget so it can glide between hexes."""
         try:
             if ev.buttons() & Qt.LeftButton:
                 owner = getattr(self, "_owner", None)
@@ -99,7 +118,7 @@ class HexButton(QPushButton):
     
 
     def _hex_path(self) -> QPainterPath:
-        # Use the actual widget width/height so the path matches the visual size
+        """Return the flat-top hexagonal path filling the widget rect."""
         W = float(self.width())
         H = float(self.height())
         # Flat-top hex exact vertices using full widget rect (no extra margin)
@@ -139,11 +158,11 @@ class HexButton(QPushButton):
             return ('#1b1f24', '#3b4148')
     
     def paintEvent(self, ev):  # type: ignore[override]
+        """Paint the hex with octave-based fill or the active blue style."""
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         path = self._hex_path()
-        
-        # Background: show active style when pressed, latched, or duplicate-highlighted
+
         is_active = self.isDown() or getattr(self, "_latched", False) or getattr(self, "_active", False)
         
         if is_active:
@@ -176,8 +195,8 @@ class HexButton(QPushButton):
         p.drawText(self.rect(), Qt.AlignCenter, self.text())
         p.end()
 
-    # Allow dynamic resizing of the hex without recreating the button
     def set_pixel_size(self, size_px: int):
+        """Resize the hex to ``size_px`` wide (height is derived) and repaint."""
         try:
             size_px = int(size_px)
             if size_px <= 0:
@@ -206,16 +225,20 @@ class HarmonicTableWidget(QWidget):
     """
     def __init__(self, midi_out: MidiOut, scale: float = 1.0,
                  rows: int = 9, cols: int = 18,
-                 base_note: int = 24,  # C1 starting octave for a lower overall range
-                 # Interval mapping (flat-top, odd-q offset):
-                 # We construct a parity-aware column term so visual neighbors are:
-                 #   - Up (visually above, even columns) .......... +7 (perfect fifth)
-                 #   - Upper-right (UR) ........................... +4 (major third)
-                 #   - Upper-left  (UL) ........................... +3 (minor third)
-                 # This matches the provided diagram and keeps lower notes at the bottom.
-                 # step_y defines the vertical row increment (default 7). step_x is unused in
-                 # the parity mapping but kept for API parity.
+                 base_note: int = 24,
                  step_x: int = 1, step_y: int = 7):
+        """Build the harmonic table grid and supporting controls.
+
+        Args:
+            midi_out: Shared MIDI output for note and CC messages.
+            scale: UI scale factor applied to fonts and hex sizing.
+            rows: Number of grid rows.
+            cols: Number of grid columns.
+            base_note: MIDI note assigned to the bottom-left hex; defaults
+                to C1 (24) so the active range sits comfortably mid-keyboard.
+            step_x: Reserved for parity-aware mappings; unused at present.
+            step_y: Vertical interval step in semitones (default 7 = fifth).
+        """
         super().__init__()
         self.midi: MidiOut = midi_out
         self.port_name: str = ""
@@ -620,32 +643,33 @@ class HarmonicTableWidget(QWidget):
         self.setLayout(root)
 
     def showEvent(self, ev):  # type: ignore[override]
+        """Pass through; the initial grid size is fixed at construction time."""
         super().showEvent(ev)
-        # No dynamic rescale here; initial size is computed once based on screen.
         return
 
     def hideEvent(self, ev):  # type: ignore[override]
-        """Release any stuck notes when widget is hidden."""
+        """Release any stuck notes when the widget is hidden."""
         self._release_drag_state()
         super().hideEvent(ev)
 
     def changeEvent(self, ev):  # type: ignore[override]
-        """Release drag state when window is deactivated (loses focus to another window)."""
+        """Release drag state when the window loses activation."""
         if ev.type() == QEvent.Type.ActivationChange:
             if not self.isActiveWindow() and self.drag_active:
                 self._release_drag_state()
         super().changeEvent(ev)
 
     def resizeEvent(self, ev):  # type: ignore[override]
+        """Pass through; hex sizing does not auto-rescale on window resize."""
         super().resizeEvent(ev)
-        # Keep size; no auto-rescale on resize.
         return
 
     def _rescale_to_window_fit(self):
-        # Disabled: initial sizing now handled in __init__ based on screen.
+        """No-op kept for backward compatibility; sizing is fixed in __init__."""
         return
 
     def sizeHint(self) -> QSize:  # type: ignore[override]
+        """Return a size that fits the grid plus the optional left control panel."""
         try:
             size_px = int(getattr(self, '_hex_size_px', int(60 * self.ui_scale)))
             s = size_px / 2.0
@@ -697,6 +721,7 @@ class HarmonicTableWidget(QWidget):
 
     # --- Wheels visibility and MIDI ---
     def _update_left_panel_visibility(self):
+        """Show or hide the mod/pitch wheel column based on user toggles."""
         try:
             any_wheels = bool(self.show_mod_wheel or self.show_pitch_wheel)
             self.left_panel.setVisible(any_wheels)
@@ -718,26 +743,31 @@ class HarmonicTableWidget(QWidget):
             pass
 
     def set_show_mod_wheel(self, checked: bool):
+        """Toggle the mod-wheel slider visibility in the left panel."""
         self.show_mod_wheel = bool(checked)
         self._update_left_panel_visibility()
 
     def set_show_pitch_wheel(self, checked: bool):
+        """Toggle the pitch-wheel slider visibility in the left panel."""
         self.show_pitch_wheel = bool(checked)
         self._update_left_panel_visibility()
 
     def _send_mod_cc(self, value: int):
+        """Forward the mod-wheel value as CC 1 on the current channel."""
         try:
             self.midi.cc(1, int(value), self.midi_channel)
         except Exception:
             pass
 
     def _send_pitch_bend(self, value: int):
+        """Forward the pitch-wheel value as a pitch-bend message."""
         try:
             self.midi.pitch_bend(int(value), self.midi_channel)
         except Exception:
             pass
 
     def _animate_pitch_to_center(self):
+        """Smoothly return the pitch-wheel slider to the centered (0) position."""
         try:
             # Stop any running animation
             self._stop_pitch_anim()
@@ -756,6 +786,7 @@ class HarmonicTableWidget(QWidget):
             pass
 
     def _stop_pitch_anim(self):
+        """Cancel the pitch-wheel return animation if one is running."""
         try:
             if self._pitch_anim is not None:
                 self._pitch_anim.stop()
@@ -765,11 +796,12 @@ class HarmonicTableWidget(QWidget):
 
     # Mapping helpers
     def _recompute_grid(self):
-        # Map notes using a parity-aware affine mapping on visual rows/cols.
-        # Base is placed at bottom-left cell (row = rows-1, col = 0)
-        # Orientation: LOWER notes at the BOTTOM. Moving upward increases pitch.
-        # Neighbor intervals (independent of column parity):
-        #   Up (even cols) = +7, UR = +4, UL = +3.
+        """Populate ``self.notes`` from ``base_note`` using the harmonic-table mapping.
+
+        Uses a parity-aware column term so adjacent intervals stay consistent
+        regardless of column index: up (even columns) = +7, upper-right = +4,
+        upper-left = +3. Lower pitches sit at the bottom of the grid.
+        """
         rows, cols = self.rows, self.cols
         notes: list[list[int | None]] = [[None for _ in range(cols)] for __ in range(rows)]
         if rows == 0 or cols == 0:
@@ -794,6 +826,7 @@ class HarmonicTableWidget(QWidget):
 
     @staticmethod
     def _note_name(n: int) -> str:
+        """Return a note label like ``"C3"`` for MIDI note ``n`` (clamped 0-127)."""
         names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
         if n < 0:
             n = 0
@@ -805,6 +838,7 @@ class HarmonicTableWidget(QWidget):
 
     # --- Controls logic (velocity, sustain, latch, panic) ---
     def _compute_velocity(self) -> int:
+        """Return the next note velocity, sampling from the range when randomized."""
         try:
             if self.vel_random_chk.isChecked():
                 low, high = self.vel_range.values()
@@ -816,6 +850,7 @@ class HarmonicTableWidget(QWidget):
             return 100
 
     def _send_note_on(self, note: int):
+        """Send Note On for ``note``, mark it active, and refresh duplicate highlighting."""
         v = self._compute_velocity()
         try:
             self.midi.note_on(int(note), v, self.midi_channel)
@@ -827,6 +862,7 @@ class HarmonicTableWidget(QWidget):
         self._update_chord_card()
 
     def _send_note_off(self, note: int):
+        """Send Note Off, clear sustain/latch state, and unhighlight duplicates."""
         try:
             self.midi.note_off(int(note), self.midi_channel)
         except Exception:
@@ -920,6 +956,7 @@ class HarmonicTableWidget(QWidget):
                 pass
 
     def toggle_sustain(self):
+        """Flip sustain mode; turning it off releases any sustained notes."""
         try:
             self.sustain = bool(self.sustain_btn.isChecked())
             self.sustain_btn.setText("Sustain: On" if self.sustain else "Sustain: Off")
@@ -932,6 +969,7 @@ class HarmonicTableWidget(QWidget):
             self._sustained_notes.clear()
 
     def toggle_latch(self):
+        """Flip latch mode (notes stay on across press cycles until pressed again)."""
         try:
             self.latch = bool(self.latch_btn.isChecked())
             self.latch_btn.setText("Latch: On" if self.latch else "Latch: Off")
@@ -939,7 +977,7 @@ class HarmonicTableWidget(QWidget):
             self.latch = False
 
     def all_notes_off_clicked(self):
-        # Flash button like the piano keyboard, then perform note-offs
+        """UI handler: flash the button, then run :meth:`_perform_all_notes_off`."""
         try:
             self._flash_all_off_button()
         except Exception:
@@ -947,7 +985,12 @@ class HarmonicTableWidget(QWidget):
         self._perform_all_notes_off()
 
     def _perform_all_notes_off(self):
-        # Send All Sound Off + All Notes Off + explicit note_offs for tracked and full range
+        """Force-stop every note and clear all active/sustain/latch tracking.
+
+        Sends CC 120 (All Sound Off) and CC 123 (All Notes Off), then
+        emits explicit Note Off for every tracked note and every MIDI note
+        in 0-127 as a safety net against stuck notes on misbehaving synths.
+        """
         try:
             # CC120: All Sound Off, CC123: All Notes Off
             self.midi.cc(120, 0, self.midi_channel)
@@ -1000,6 +1043,7 @@ class HarmonicTableWidget(QWidget):
             self._mouse_grabbed = False
 
     def _flash_all_off_button(self, duration_ms: int = 150):
+        """Briefly highlight the All Notes Off button blue as visual feedback."""
         btn = getattr(self, 'all_off_btn', None)
         if not isinstance(btn, QPushButton):
             return
@@ -1033,6 +1077,7 @@ class HarmonicTableWidget(QWidget):
 
     # --- Drag helpers ---
     def _set_button_active(self, coords: tuple[int, int] | None, active: bool):
+        """Toggle the visual + MIDI active state for the button at ``coords``."""
         if coords is None:
             return
         r, c = coords
@@ -1061,7 +1106,7 @@ class HarmonicTableWidget(QWidget):
             self._mouse_grabbed = False
 
     def _handle_press(self, r: int, c: int):
-        # Latch mode: toggle note on press and do not engage drag
+        """Handle a left-button press on hex (r, c) in either latch or momentary mode."""
         if self.latch:
             try:
                 note = int(self.notes[r][c])
@@ -1107,11 +1152,11 @@ class HarmonicTableWidget(QWidget):
             self._set_button_active(new_coords, True)
 
     def _handle_release(self, r: int, c: int):
-        # On mouse release, deactivate whichever button is currently active
+        """End a drag and release whichever hex is currently active."""
         self._release_drag_state()
 
-    # Called by buttons to continue a drag when mouse moves
     def _drag_update_from_global(self, gpt):
+        """Update the active hex during drag, mapping a global cursor point to a cell."""
         if not self.drag_active:
             return
         try:
@@ -1128,8 +1173,8 @@ class HarmonicTableWidget(QWidget):
             self._drag_current = new_coords
             self._set_button_active(new_coords, True)
 
-    # Velocity toggle behavior (match piano): show range when randomized, otherwise single slider
     def _toggle_vel_random(self, checked: bool):
+        """Switch between fixed-velocity and randomized-range velocity sliders."""
         try:
             self.vel_range.setVisible(bool(checked))
             self.vel_slider.setVisible(not bool(checked))
@@ -1137,7 +1182,7 @@ class HarmonicTableWidget(QWidget):
             pass
 
     def eventFilter(self, obj, ev):  # type: ignore[override]
-        # Handle events originating from the grid or any child button
+        """Route grid/button mouse events to drag handling and right-click latch."""
         if obj is getattr(self, "_grid", None) or isinstance(obj, QPushButton):
             et = ev.type()
             
@@ -1181,6 +1226,7 @@ class HarmonicTableWidget(QWidget):
 
     # MIDI handlers
     def _on_btn(self, r: int, c: int, pressed: bool):
+        """Handle a press/release event for hex (r, c) honoring sustain mode."""
         try:
             note = int(self.notes[r][c])
         except Exception:
@@ -1200,12 +1246,14 @@ class HarmonicTableWidget(QWidget):
 
     # External API parity
     def set_channel(self, channel_1_based: int):
+        """Select the MIDI channel (1-16) used for outgoing messages."""
         try:
             self.midi_channel = max(1, min(16, int(channel_1_based))) - 1
         except Exception:
             self.midi_channel = 0
 
     def set_midi_out(self, midi: MidiOut, port_name: str = ""):
+        """Swap the MIDI output and remember the active port name."""
         try:
             self.midi = midi
         except Exception:
@@ -1217,14 +1265,15 @@ class HarmonicTableWidget(QWidget):
 
     # Config
     def get_mapping(self) -> Tuple[int, int, int]:
+        """Return the current ``(base_note, step_x, step_y)`` interval mapping."""
         return int(self.base_note), int(self.step_x), int(self.step_y)
 
     def set_mapping(self, base_note: int, step_x: int, step_y: int):
+        """Update the interval mapping and re-label every hex with its new note."""
         try:
             self.base_note = int(base_note)
             self.step_x = int(step_x)
             self.step_y = int(step_y)
-            # Recompute labels/notes
             self._recompute_grid()
             for r in range(self.rows):
                 for c in range(self.cols):

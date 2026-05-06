@@ -1,8 +1,8 @@
-"""
-Piano Layout Generator Module
+"""Programmatic piano keyboard layout generation.
 
-This module provides functions to generate realistic piano keyboard layouts
-with proper black and white key positioning.
+Builds :class:`Layout` instances whose two rows hold white keys and the
+overlaid black keys. :func:`create_piano_by_size` is the main entry point;
+the size-specific helpers below are thin wrappers used by the launcher.
 """
 
 from typing import List, Tuple, Optional

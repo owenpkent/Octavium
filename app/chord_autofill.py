@@ -591,12 +591,23 @@ def generate_single_alternative(
 
 
 class MiniKeyWidget(QWidget):
-    """A minimal piano keyboard widget for chord selection/editing."""
-    
-    note_clicked = Signal(int)  # Emits MIDI note number
-    notes_changed = Signal(list)  # Emits list of selected notes
-    
+    """Compact piano keyboard for chord editing in dialogs.
+
+    Emits :attr:`note_clicked` for each tapped key and :attr:`notes_changed`
+    whenever the selected-notes set is updated.
+    """
+
+    note_clicked = Signal(int)
+    notes_changed = Signal(list)
+
     def __init__(self, octaves: int = 2, start_octave: int = 4, parent: Optional[QWidget] = None):
+        """Build the keyboard.
+
+        Args:
+            octaves: Number of octaves to render.
+            start_octave: MIDI octave for the leftmost C.
+            parent: Optional Qt parent.
+        """
         super().__init__(parent)
         self.octaves = octaves
         self.start_octave = start_octave
@@ -765,9 +776,18 @@ class MiniKeyWidget(QWidget):
 
 
 class ChordPreviewWidget(QFrame):
-    """Widget to preview a single chord with its name and notes."""
-    
+    """Compact preview tile showing a chord's degree, name, and notes."""
+
     def __init__(self, root: int, chord_type: str, notes: List[int], degree: str = "", parent: Optional[QWidget] = None):
+        """Build the preview tile.
+
+        Args:
+            root: Root pitch class (0-11).
+            chord_type: Display name of the chord quality.
+            notes: MIDI notes that make up the chord voicing.
+            degree: Optional roman-numeral label (e.g. ``"V"``).
+            parent: Optional Qt parent.
+        """
         super().__init__(parent)
         self.root = root
         self.chord_type = chord_type
@@ -812,9 +832,21 @@ class ChordPreviewWidget(QFrame):
 
 
 class AutofillDialog(QDialog):
-    """Dialog for autofilling the chord pad with diatonic chords."""
-    
+    """Modal dialog that picks a key/mode and previews chords for the chord pad.
+
+    Sources include the algorithmic generator, the bundled MIDI library, and
+    a Markov chain over progressions; selections drive
+    :meth:`get_chords` and :meth:`get_autofill_context`.
+    """
+
     def __init__(self, midi_out: 'MidiOut', midi_channel: int = 0, parent: Optional[QWidget] = None):
+        """Build the autofill dialog.
+
+        Args:
+            midi_out: Shared MIDI output used for chord previews.
+            midi_channel: 0-based MIDI channel for previews.
+            parent: Optional Qt parent.
+        """
         super().__init__(parent)
         self.midi = midi_out
         self.midi_channel = midi_channel
@@ -1156,6 +1188,7 @@ class AutofillDialog(QDialog):
         self._update_preview()
     
     def _combo_style(self) -> str:
+        """Return the QSS used for the dialog's combo boxes."""
         return """
             QComboBox {
                 background-color: #2b2f36;
@@ -1181,6 +1214,7 @@ class AutofillDialog(QDialog):
         """
     
     def _button_style(self, primary: bool = False) -> str:
+        """Return the QSS for dialog buttons; pass ``primary=True`` for the accent style."""
         if primary:
             return """
                 QPushButton {
@@ -1214,7 +1248,7 @@ class AutofillDialog(QDialog):
                 background-color: #2b2f36;
             }
         """
-    
+
     def _apply_emotion_preset(self, emotion: str) -> None:
         """Apply an emotion preset to key and mode selection."""
         if emotion in EMOTION_PRESETS:
@@ -1259,7 +1293,7 @@ class AutofillDialog(QDialog):
         return self._source_btn_group.checkedId() == 2
 
     def _on_source_changed(self, btn_id: int, checked: bool) -> None:
-        """Handle source radio button toggle."""
+        """Show/hide the option panels matching the newly selected chord source."""
         if not checked:
             return
         self._midi_options_group.setVisible(btn_id == 1)
@@ -1450,10 +1484,20 @@ class AutofillDialog(QDialog):
 
 
 class ChordEditDialog(QDialog):
-    """Dialog for editing a chord using an interactive keyboard."""
-    
+    """Modal editor that lets the user pick exact notes for a chord card."""
+
     def __init__(self, root_note: int, chord_type: str, actual_notes: List[int],
                  midi_out: 'MidiOut', midi_channel: int = 0, parent: Optional[QWidget] = None):
+        """Build the editor seeded with the chord being modified.
+
+        Args:
+            root_note: Original root pitch class for display.
+            chord_type: Original chord quality for display.
+            actual_notes: Initial selection of MIDI notes to highlight.
+            midi_out: Shared MIDI output used for previewing.
+            midi_channel: 0-based MIDI channel for previews.
+            parent: Optional Qt parent.
+        """
         super().__init__(parent)
         self.midi = midi_out
         self.midi_channel = midi_channel
@@ -1533,6 +1577,7 @@ class ChordEditDialog(QDialog):
         layout.addLayout(button_layout)
     
     def _button_style(self, primary: bool = False) -> str:
+        """Return the QSS for editor buttons; pass ``primary=True`` for the accent style."""
         if primary:
             return """
                 QPushButton {

@@ -1,12 +1,19 @@
-"""
-49-Key Piano Layout (4 Octaves)
+"""Hand-built 49-key piano layout (4 octaves, C2-C6).
+
+Used as an explicit alternative to :func:`app.piano_layout.create_49_key_piano`,
+which generates the same shape programmatically.
 """
 
 from .models import Layout, RowDef, KeyDef
 
 
 def create_49_key_piano() -> Layout:
-    """Create a 49-key piano layout (4 octaves, C2-C6)."""
+    """Build a 49-key piano :class:`Layout` spanning C2 to C6.
+
+    Returns:
+        A two-row layout: 29 white keys on the lower row and 20 black keys
+        (with transparent spacers) overlaid on the upper row.
+    """
     
     # White keys for 49-key piano (29 white keys)
     white_keys = [

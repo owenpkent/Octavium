@@ -1,3 +1,5 @@
+"""Drum-style pad grid widget with momentary, sustain, and latch playback modes."""
+
 from typing import List
 from PySide6.QtWidgets import (
     QWidget, QPushButton, QGridLayout, QSizePolicy, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox, QSlider
@@ -10,9 +12,18 @@ from .keyboard_widget import RangeSlider
 
 
 def create_pad_grid_layout(rows: int = 4, cols: int = 4, start_note: int = 36) -> Layout:
-    """Create a simple rows x cols pad grid layout.
-    Defaults to 4x4 starting at MIDI note 36 (C1, General MIDI Kick).
-    Higher notes appear at the top, lower notes at the bottom."""
+    """Build a ``rows`` x ``cols`` pad grid :class:`Layout`.
+
+    Args:
+        rows: Number of pad rows.
+        cols: Number of pad columns.
+        start_note: MIDI note assigned to the bottom-left pad. Defaults to
+            36 (C1), the General MIDI Kick.
+
+    Returns:
+        A layout with notes ascending left-to-right within a row and
+        bottom-to-top across rows so the highest pitch sits in the top-right.
+    """
     keys_rows: List[RowDef] = []
     # Start from the highest note and work downward so top row has highest notes
     note = int(start_note) + (rows * cols) - 1
@@ -37,8 +48,23 @@ def create_pad_grid_layout(rows: int = 4, cols: int = 4, start_note: int = 36) -
 
 
 class PadGridWidget(QWidget):
-    """A drum pad/grid widget with fixed layout and keyboard-like controls."""
+    """Pad grid surface with octave shifting, sustain, latch, and randomized velocity.
+
+    Defaults to MIDI channel 10 (drums). Pads can play momentarily, hold
+    notes until released (sustain), or toggle on/off (latch). Velocity may
+    be a fixed value or sampled from a configurable range.
+    """
+
     def __init__(self, layout_model: Layout, midi_out: MidiOut, title: str = "", scale: float = 1.0):
+        """Build the pad grid from a precomputed :class:`Layout`.
+
+        Args:
+            layout_model: Pad arrangement, typically from
+                :func:`create_pad_grid_layout`.
+            midi_out: Shared MIDI output used for note events.
+            title: Window title; defaults to the layout's name.
+            scale: UI scale factor applied to fonts, padding, and pad size.
+        """
         super().__init__()
         self.layout_model = layout_model
         self.midi = midi_out
@@ -394,7 +420,7 @@ class PadGridWidget(QWidget):
         self.setLayout(root)
 
     def sizeHint(self) -> QSize:  # type: ignore[override]
-        # Compute the full content size so the main window can fit the header + grid without clipping
+        """Return a size that fits the header and pad grid without clipping."""
         try:
             rows = len(self.layout_model.rows)
             cols = max((len(r.keys) for r in self.layout_model.rows), default=4)
@@ -452,10 +478,15 @@ class PadGridWidget(QWidget):
         return QSize(int(content_w), int(h))
 
     def set_channel(self, channel_1_based: int):
+        """Select the MIDI channel used for outgoing pad notes."""
         self.midi_channel = max(1, min(16, int(channel_1_based))) - 1
 
     def _on_pad_down(self, key: KeyDef, btn: QPushButton):
-        # When user presses, start dragging across pads and grab mouse
+        """Trigger a Note On for ``key`` and start drag tracking across pads.
+
+        Honors latch mode: pressing a latched pad releases it instead of
+        retriggering. Velocity comes from :meth:`_choose_velocity`.
+        """
         self.dragging = True
         self.last_drag_button = btn
         try:
@@ -492,6 +523,12 @@ class PadGridWidget(QWidget):
             self._latched.add(note)
 
     def _on_pad_up(self, key: KeyDef, btn: QPushButton):
+        """Release ``key`` according to current sustain/latch mode.
+
+        Latched pads keep sounding and stay visually pressed; sustained
+        pads remain active until sustain is turned off; otherwise a
+        Note Off is sent immediately.
+        """
         ch = self.midi_channel
         note = int(key.note) + 12 * self.octave_offset
         if self.latch and note in self._latched:
@@ -543,6 +580,7 @@ class PadGridWidget(QWidget):
 
     # ---- Helpers / controls ----
     def _change_octave(self, delta: int):
+        """Shift the playable note range by ``delta`` octaves, clamped to +-4."""
         self.octave_offset = max(-4, min(4, int(self.octave_offset) + int(delta)))
         # Keep the label static; do not append the numeric offset
         try:
@@ -551,6 +589,7 @@ class PadGridWidget(QWidget):
             pass
 
     def _toggle_sustain(self):
+        """Flip sustain mode; turning it off releases all non-latched notes."""
         self.sustain = bool(self.sustain_btn.isChecked())
         self.sustain_btn.setText("Sustain: On" if self.sustain else "Sustain: Off")
         if not self.sustain:
@@ -564,6 +603,7 @@ class PadGridWidget(QWidget):
                 self._active.discard((note, ch))
 
     def _toggle_latch(self):
+        """Flip latch mode; turning it off releases all currently latched notes."""
         new_state = bool(self.latch_btn.isChecked())
         self.latch_btn.setText("Latch: On" if new_state else "Latch: Off")
         if not new_state:
@@ -588,6 +628,11 @@ class PadGridWidget(QWidget):
 
     # ---- Event filter to support click-drag across pads ----
     def eventFilter(self, obj, event):  # type: ignore[override]
+        """Translate mouse events on pads/grid into note-on/note-off transitions.
+
+        Supports click-and-drag across pads: while the mouse button is held,
+        entering a new pad releases the previous one and triggers the new one.
+        """
         try:
             # Per-button events: only used to flag start/stop of dragging; note triggering handled by signals
             if isinstance(obj, QPushButton) and obj in self._btn_key:
@@ -684,7 +729,7 @@ class PadGridWidget(QWidget):
         return super().eventFilter(obj, event)
 
     def _toggle_vel_random(self, checked: bool):
-        # Update flag and toggle which slider is visible
+        """Switch between fixed-velocity and randomized-velocity-range mode."""
         self.vel_random = bool(checked)
         try:
             self.vel_slider.setVisible(not self.vel_random)
@@ -766,7 +811,14 @@ class PadGridWidget(QWidget):
                 pass
 
     def _choose_velocity(self, default: int = 100) -> int:
-        # If not randomizing, use the single slider value (fallback to default if missing)
+        """Return the next note velocity, sampling the range when randomization is on.
+
+        Args:
+            default: Fallback used if the velocity slider can't be read.
+
+        Returns:
+            A velocity in ``[1, 127]``.
+        """
         try:
             if not self.vel_random:
                 return int(max(1, min(127, int(self.vel_slider.value()))))

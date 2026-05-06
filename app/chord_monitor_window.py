@@ -17,10 +17,23 @@ if TYPE_CHECKING:
 
 
 class ChordMonitorReplayArea(QWidget):
-    """A 4x4 grid replay area for chord cards - styled like pad grid."""
-    _parent_window: Optional['ChordMonitorWindow']  # For velocity access
-    
+    """4x4 grid that hosts chord cards and forwards playback to the shared MIDI out.
+
+    Each slot is either a :class:`ReplayCard` or a placeholder button that
+    accepts dropped chords. The owning :class:`ChordMonitorWindow` is held
+    in :attr:`_parent_window` so cards can read live velocity/drift settings.
+    """
+
+    _parent_window: Optional['ChordMonitorWindow']
+
     def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
+        """Build the 4x4 grid with empty placeholder slots ready to accept drops.
+
+        Args:
+            midi_out: Shared MIDI output used for chord playback.
+            midi_channel: 0-based MIDI channel for outgoing notes.
+            parent: Optional Qt parent.
+        """
         super().__init__(parent)
         self.midi = midi_out
         self.midi_channel = midi_channel
@@ -634,10 +647,24 @@ class ChordMonitorReplayArea(QWidget):
 
 
 class ChordMonitorWindow(QMainWindow):
-    """Simplified window containing just a 4x4 grid replay area."""
-    _parent_main: Optional['Any']  # Reference to main window for close event handling
-    
+    """Standalone Chord Pad window with autofill, drift, exclusivity, and paging.
+
+    Hosts a :class:`ChordMonitorReplayArea` and the surrounding controls
+    (velocity, drift, sustain, page management). Holds a back-reference to
+    its spawning main window in :attr:`_parent_main` so it can disable the
+    matching menu item on close.
+    """
+
+    _parent_main: Optional['Any']
+
     def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
+        """Build the chord pad window with full controls and an empty grid.
+
+        Args:
+            midi_out: Shared MIDI output used for chord playback.
+            midi_channel: 0-based MIDI channel for outgoing notes.
+            parent: Optional Qt parent.
+        """
         super().__init__(parent)
         # Late import to avoid circular dependency
         from .keyboard_widget import RangeSlider  # noqa: F811
@@ -1800,7 +1827,7 @@ class ChordMonitorWindow(QMainWindow):
             self._channel_actions.append(act)
     
     def _set_channel(self, channel: int) -> None:
-        """Set MIDI channel for chord monitor."""
+        """Forward a channel selection from the menu to the embedded replay area."""
         self.midi_channel = channel
         if hasattr(self, 'replay_area'):
             self.replay_area.set_channel(channel)

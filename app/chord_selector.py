@@ -212,6 +212,14 @@ _RAW_CHORDS: Dict[str, List[int]] = {
 
 @dataclass(frozen=True)
 class ChordTemplate:
+    """Normalized pitch-class template for one named chord quality.
+
+    Attributes:
+        name: Display name (e.g. ``"Major 7th"``).
+        pcs: Frozen set of pitch classes (0-11) relative to the root.
+        size: Number of distinct pitch classes; used as a tiebreaker.
+    """
+
     name: str
     pcs: FrozenSet[int]
     size: int
@@ -225,6 +233,17 @@ for name, ivals in _RAW_CHORDS.items():
 
 @dataclass
 class Match:
+    """Scored chord-detection result.
+
+    Attributes:
+        name: Template name (e.g. ``"Minor 7th"``).
+        root: Pitch class (0-11) used as the chord root for this match.
+        score: Higher is a better fit (see :func:`score_match`).
+        missing: Template pitch classes absent from the input.
+        extras: Input pitch classes outside the template.
+        template_size: Number of pitch classes in the matched template.
+    """
+
     name: str
     root: int
     score: float
@@ -373,10 +392,21 @@ def detect_chord(notes: list[int]) -> tuple[Optional[int], Optional[str]]:
 
 
 class ReplayCard(QFrame):
-    """A clickable card in the replay area that plays a chord."""
-    _slot_index: Optional[int]  # For grid tracking
-    
+    """Clickable chord card in the replay area; supports drag, lock, and context menu."""
+
+    _slot_index: Optional[int]
+
     def __init__(self, root_note: int, chord_type: str, replay_area: 'ReplayArea', actual_notes: Optional[List[int]] = None, parent: Optional[QWidget] = None):
+        """Build a card representing a single chord.
+
+        Args:
+            root_note: Root pitch class (0-11) for display and replay.
+            chord_type: Display name of the chord quality.
+            replay_area: Owning :class:`ReplayArea` used for playback.
+            actual_notes: Optional explicit MIDI notes; falls back to a
+                generated voicing when empty.
+            parent: Optional Qt parent.
+        """
         super().__init__(parent)
         self.root_note = root_note
         self.chord_type = chord_type
@@ -987,10 +1017,22 @@ class ReplayCard(QFrame):
 
 
 class ChordCard(QFrame):
-    """A draggable card representing a chord."""
+    """Draggable source card produced by the chord palette.
+
+    Drops onto a :class:`ReplayArea` to spawn a corresponding
+    :class:`ReplayCard` for replay and editing.
+    """
+
     drag_start_position: QPoint
-    
+
     def __init__(self, root_note: int, chord_type: str, parent: Optional[QWidget] = None):
+        """Build a labeled chord tile.
+
+        Args:
+            root_note: Pitch class (0-11) shown as the root.
+            chord_type: Display name of the chord quality.
+            parent: Optional Qt parent.
+        """
         super().__init__(parent)
         self.root_note = root_note
         self.chord_type = chord_type
@@ -1065,13 +1107,26 @@ class ChordCard(QFrame):
 
 
 class ReplayArea(QWidget):
-    """Area where chord cards can be dropped and clicked to replay."""
+    """Drop target that hosts replayable chord cards.
+
+    Accepts drags from :class:`ChordCard` or other :class:`ReplayCard`
+    instances and exposes ``_play_chord``/``_play_exact_notes`` for cards
+    to invoke during click playback.
+    """
+
     _layout: QHBoxLayout
-    grid_positions: Dict[int, ReplayCard]  # For chord monitor compatibility
-    _parent_widget: Optional['ChordSelectorWidget']  # For velocity access
-    _parent_window: Optional[Any]  # For chord monitor window reference
-    
+    grid_positions: Dict[int, ReplayCard]
+    _parent_widget: Optional['ChordSelectorWidget']
+    _parent_window: Optional[Any]
+
     def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
+        """Build the replay surface.
+
+        Args:
+            midi_out: Shared MIDI output used for chord playback.
+            midi_channel: 0-based MIDI channel for outgoing notes.
+            parent: Optional Qt parent.
+        """
         super().__init__(parent)
         self.midi = midi_out
         self.midi_channel = midi_channel
@@ -1210,8 +1265,16 @@ class ReplayArea(QWidget):
 
 
 class ChordSelectorWidget(QWidget):
-    """Main widget for chord selection and management."""
+    """Top-level chord palette: pick a root and quality, drag cards to a replay area."""
+
     def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
+        """Build the chord selector palette and embedded replay area.
+
+        Args:
+            midi_out: Shared MIDI output used for note playback.
+            midi_channel: 0-based MIDI channel for outgoing notes.
+            parent: Optional Qt parent.
+        """
         super().__init__(parent)
         # Late import to avoid circular dependency
         from .keyboard_widget import RangeSlider  # noqa: F811

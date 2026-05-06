@@ -1,4 +1,10 @@
-"""Standalone window wrappers for Octavium widgets."""
+"""Top-level :class:`QMainWindow` wrappers for the launcher's child surfaces.
+
+Each window owns a single Octavium widget (chord selector, pad grid, faders,
+or XY fader), wires up a MIDI Channel submenu, and exposes
+:meth:`update_midi_out` so the launcher can re-route audio when the port
+changes.
+"""
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QMenu
 from PySide6.QtGui import QIcon, QAction, QActionGroup
 from PySide6.QtCore import Qt
@@ -8,7 +14,13 @@ from .midi_io import MidiOut
 
 
 def _create_midi_channel_menu(window: QMainWindow, current_channel: int, on_channel_change) -> None:
-    """Create a MIDI menu with channel selection for a window."""
+    """Attach a MIDI > Channel submenu of 16 exclusive radio actions.
+
+    Args:
+        window: Window whose menu bar receives the new menu.
+        current_channel: 1-based channel preselected in the submenu.
+        on_channel_change: Callback invoked with the chosen 1-based channel.
+    """
     menubar = window.menuBar()
     
     midi_menu = menubar.addMenu("&MIDI")
@@ -33,9 +45,10 @@ def _create_midi_channel_menu(window: QMainWindow, current_channel: int, on_chan
 
 
 class ChordSelectorWindow(QMainWindow):
-    """Standalone window for Chord Selector."""
-    
+    """Standalone window hosting the chord selector widget."""
+
     def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
+        """Build the window and embed a fresh :class:`ChordSelectorWidget`."""
         super().__init__(parent)
         from .chord_selector import ChordSelectorWidget
         
@@ -62,9 +75,10 @@ class ChordSelectorWindow(QMainWindow):
 
 
 class PadGridWindow(QMainWindow):
-    """Standalone window for Pad Grid."""
-    
+    """Standalone window hosting a 4x4 pad grid starting at C2."""
+
     def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
+        """Build the window with a default 4x4 pad grid starting at MIDI C2."""
         super().__init__(parent)
         from .pad_grid import PadGridWidget, create_pad_grid_layout
         
@@ -96,7 +110,7 @@ class PadGridWindow(QMainWindow):
         """)
     
     def _set_channel(self, channel: int) -> None:
-        """Set MIDI channel for pad grid."""
+        """Forward a channel change from the menu to the embedded pad grid."""
         self.midi_channel = channel
         if hasattr(self.pad_grid, 'set_channel'):
             self.pad_grid.set_channel(channel)
@@ -104,7 +118,7 @@ class PadGridWindow(QMainWindow):
             self.pad_grid.midi_channel = channel
 
     def update_midi_out(self, new_midi: MidiOut) -> None:
-        """Update MIDI output (called by launcher on port change)."""
+        """Re-route the embedded pad grid to a new MIDI output."""
         try:
             if hasattr(self.pad_grid, 'set_midi_out'):
                 self.pad_grid.set_midi_out(new_midi)
@@ -115,9 +129,10 @@ class PadGridWindow(QMainWindow):
 
 
 class FadersWindow(QMainWindow):
-    """Standalone window for Faders."""
-    
+    """Standalone window hosting the faders widget."""
+
     def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
+        """Build the window and embed a fresh :class:`FadersWidget`."""
         super().__init__(parent)
         from .faders import FadersWidget
         
@@ -147,7 +162,7 @@ class FadersWindow(QMainWindow):
         """)
     
     def _set_channel(self, channel: int) -> None:
-        """Set MIDI channel for faders."""
+        """Forward a channel change from the menu to the embedded faders."""
         self.midi_channel = channel
         if hasattr(self.faders, 'set_channel'):
             self.faders.set_channel(channel)
@@ -155,7 +170,7 @@ class FadersWindow(QMainWindow):
             self.faders.midi_channel = channel
 
     def update_midi_out(self, new_midi: MidiOut) -> None:
-        """Update MIDI output (called by launcher on port change)."""
+        """Re-route the embedded faders to a new MIDI output."""
         try:
             if hasattr(self.faders, 'set_midi_out'):
                 self.faders.set_midi_out(new_midi)
@@ -166,9 +181,10 @@ class FadersWindow(QMainWindow):
 
 
 class XYFaderWindow(QMainWindow):
-    """Standalone window for XY Fader."""
-    
+    """Standalone window hosting the XY fader widget."""
+
     def __init__(self, midi_out: MidiOut, midi_channel: int = 0, parent: Optional[QWidget] = None):
+        """Build the window and embed a fresh :class:`XYFaderWidget`."""
         super().__init__(parent)
         from .xy_fader import XYFaderWidget
         
@@ -198,7 +214,7 @@ class XYFaderWindow(QMainWindow):
         """)
     
     def _set_channel(self, channel: int) -> None:
-        """Set MIDI channel for XY fader."""
+        """Forward a channel change from the menu to the embedded XY fader."""
         self.midi_channel = channel
         if hasattr(self.xy_fader, 'set_channel'):
             self.xy_fader.set_channel(channel)
@@ -206,7 +222,7 @@ class XYFaderWindow(QMainWindow):
             self.xy_fader.midi_channel = channel
 
     def update_midi_out(self, new_midi: MidiOut) -> None:
-        """Update MIDI output (called by launcher on port change)."""
+        """Re-route the embedded XY fader to a new MIDI output."""
         try:
             if hasattr(self.xy_fader, 'set_midi_out'):
                 self.xy_fader.set_midi_out(new_midi)

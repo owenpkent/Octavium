@@ -1,3 +1,11 @@
+"""Piano keyboard widget plus its supporting controls.
+
+Houses :class:`KeyboardWidget` (the main piano surface) along with the
+companion widgets it uses: chord-card drop targets, a draggable chord card
+representation of currently sounding notes, and three custom slider variants
+used for velocity, mod, and pitch wheels.
+"""
+
 from PySide6.QtWidgets import QWidget, QPushButton, QGridLayout, QHBoxLayout, QVBoxLayout, QLabel, QSlider, QApplication, QSizePolicy, QCheckBox, QFrame
 from PySide6.QtCore import Qt, QSize, QEvent, QPropertyAnimation, QEasingCurve, QRectF, QTimer, QMimeData
 from PySide6.QtGui import QPainter, QColor, QDrag
@@ -10,8 +18,10 @@ from .chord_selector import detect_chord, NOTES
 
 
 class ChordDropTarget(QFrame):
-    """A drop target for chord cards that highlights when dragging over it."""
+    """Dashed drop zone above the keyboard that latches a dropped chord's notes."""
+
     def __init__(self, keyboard_widget: 'KeyboardWidget', parent: QWidget = None):
+        """Build the drop target bound to ``keyboard_widget``."""
         super().__init__(parent)
         self.keyboard_widget = keyboard_widget
         self._drag_over = False
@@ -139,8 +149,22 @@ class ChordDropTarget(QFrame):
 
 
 class KeyboardChordCard(QFrame):
-    """A draggable chord card shown on the keyboard when latch is on."""
+    """Draggable chord card displayed above the keyboard for the active chord.
+
+    Carries the original MIDI notes (when known) so other surfaces can
+    replay the exact voicing rather than a re-derived one.
+    """
+
     def __init__(self, root_note: int, chord_type: str, actual_notes: list[int] = None, parent: QWidget = None):
+        """Build a card representing the currently sounding chord.
+
+        Args:
+            root_note: Pitch class (0-11) used as the chord root for display.
+            chord_type: Display name of the chord quality.
+            actual_notes: MIDI notes currently sounding; included in the
+                drag payload so drop targets can replay the exact voicing.
+            parent: Optional Qt parent.
+        """
         super().__init__(parent)
         self.root_note = root_note
         self.chord_type = chord_type
@@ -216,6 +240,16 @@ class KeyboardChordCard(QFrame):
         self.setCursor(Qt.OpenHandCursor)
 
 def velocity_curve(v_in: int, curve: str) -> int:
+    """Apply a velocity response curve.
+
+    Args:
+        v_in: Raw input velocity, clamped into ``[1, 127]``.
+        curve: ``"soft"`` raises to a 0.7 power, ``"hard"`` to 1.5; any
+            other value is treated as linear.
+
+    Returns:
+        The shaped velocity in ``[1, 127]``.
+    """
     v = max(1, min(127, v_in))
     if curve == "soft":
         return int((v / 127) ** 0.7 * 127)
@@ -224,8 +258,10 @@ def velocity_curve(v_in: int, curve: str) -> int:
     return v
 
 class ClickAnywhereSlider(QSlider):
-    """QSlider that lets you click anywhere on the groove to jump and drag from that point."""
+    """QSlider variant where clicking the groove jumps the handle and starts a drag."""
+
     def mousePressEvent(self, event):  # type: ignore[override]
+        """Snap the value to the click position before forwarding to base behavior."""
         if event.button() == Qt.LeftButton:
             # Map click position to value range immediately
             if self.orientation() == Qt.Vertical:
@@ -247,16 +283,22 @@ class ClickAnywhereSlider(QSlider):
 
 
 class DragReferenceSlider(QSlider):
-    """Slider that does not jump to click. Clicking sets a reference; dragging adjusts value relatively.
-    Works for both orientations, used here for vertical Mod/Pitch wheels.
+    """Slider whose value moves only with relative drag, never jumping to clicks.
+
+    Used by the vertical mod and pitch wheels so a stray click doesn't fire
+    a value change; the press point becomes a reference and motion adjusts
+    relative to it.
     """
+
     def __init__(self, orientation=Qt.Vertical, parent=None):
+        """Construct the slider and clear drag-tracking state."""
         super().__init__(orientation, parent)
         self._drag_active = False
         self._press_pos = None
         self._press_value = None
 
     def mousePressEvent(self, event):  # type: ignore[override]
+        """Record the press point and current value as the drag reference."""
         if event.button() != Qt.LeftButton:
             return super().mousePressEvent(event)
         self._drag_active = True
@@ -271,6 +313,7 @@ class DragReferenceSlider(QSlider):
             pass
 
     def mouseMoveEvent(self, event):  # type: ignore[override]
+        """Translate cursor delta into a value delta proportional to slider span."""
         if not self._drag_active or self._press_pos is None or self._press_value is None:
             return super().mouseMoveEvent(event)
         rng = max(1, int(self.maximum()) - int(self.minimum()))
@@ -288,6 +331,7 @@ class DragReferenceSlider(QSlider):
         self.setValue(new_val)
 
     def mouseReleaseEvent(self, event):  # type: ignore[override]
+        """End the relative-drag session and clear the cached reference state."""
         if self._drag_active:
             self._drag_active = False
             self._press_pos = None
@@ -299,11 +343,14 @@ class DragReferenceSlider(QSlider):
         return super().mouseReleaseEvent(event)
 
 class RangeSlider(QWidget):
-    """Minimal horizontal range slider with two handles (low/high). Values are ints.
-    - Click-and-drag a handle to resize the range.
-    - Click-and-drag inside the highlighted range to move the whole range.
-    - Clicking elsewhere does nothing (no jump)."""
+    """Horizontal range slider with two integer handles for low/high bounds.
+
+    Drag a handle to move just that edge or drag inside the selected band
+    to slide the whole range; clicks outside the range are ignored.
+    """
+
     def __init__(self, minimum=1, maximum=127, low=64, high=100, parent=None):
+        """Build the range slider with the given bounds and initial selection."""
         super().__init__(parent)
         self._min = int(minimum)
         self._max = int(maximum)
@@ -319,6 +366,7 @@ class RangeSlider(QWidget):
         self.setMouseTracking(True)
 
     def setRange(self, minimum: int, maximum: int):
+        """Update the slider's value bounds and re-clamp the current selection."""
         self._min = int(minimum)
         self._max = int(maximum)
         self._low = max(self._min, min(self._low, self._max))
@@ -326,6 +374,7 @@ class RangeSlider(QWidget):
         self.update()
 
     def setValues(self, low: int, high: int):
+        """Set the selected range; arguments are swapped if ``low > high``."""
         low, high = int(low), int(high)
         if low > high:
             low, high = high, low
@@ -334,19 +383,23 @@ class RangeSlider(QWidget):
         self.update()
 
     def values(self):
+        """Return ``(low, high)`` for the current selection as integers."""
         return int(self._low), int(self._high)
 
     def _pos_to_value(self, x: float) -> int:
+        """Map a widget x-coordinate to a clamped integer value."""
         w = max(1, self.width() - 10)
         frac = min(1.0, max(0.0, (x - 5) / w))
         return int(round(self._min + frac * (self._max - self._min)))
 
     def _value_to_pos(self, v: int) -> float:
+        """Map an integer value to its x-coordinate in widget space."""
         rng = max(1, self._max - self._min)
         frac = (int(v) - self._min) / rng
         return 5 + frac * (self.width() - 10)
 
     def paintEvent(self, _):  # type: ignore[override]
+        """Render the groove, the highlighted selection band, and both handles."""
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         # Groove (thicker)
@@ -381,12 +434,12 @@ class RangeSlider(QWidget):
         return low_r, high_r
 
     def mousePressEvent(self, ev):  # type: ignore[override]
+        """Begin dragging a handle, the whole range, or ignore an outside click."""
         if ev.button() != Qt.LeftButton:
             return super().mousePressEvent(ev)
         posx = ev.position().x()
         v = self._pos_to_value(posx)
         low_r, high_r = self._handle_rects()
-        # If click is on a handle: start resizing that edge without snapping
         if low_r.adjusted(-3, -3, 3, 3).contains(ev.position()):
             self._dragging = 'low'
             self._press_v = v
@@ -407,6 +460,7 @@ class RangeSlider(QWidget):
         self.update()
 
     def mouseMoveEvent(self, ev):  # type: ignore[override]
+        """Update the bound being dragged or slide the entire range together."""
         if self._dragging is None:
             return super().mouseMoveEvent(ev)
         v = self._pos_to_value(ev.position().x())
@@ -430,6 +484,7 @@ class RangeSlider(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, ev):  # type: ignore[override]
+        """End any active drag and clear the cached drag-start values."""
         self._dragging = None
         self._press_v = None
         self._init_low = None
@@ -437,7 +492,26 @@ class RangeSlider(QWidget):
         return super().mouseReleaseEvent(ev)
 
 class KeyboardWidget(QWidget):
+    """Interactive piano keyboard with sustain, latch, polyphony cap, and CC wheels.
+
+    Renders a :class:`Layout` of :class:`KeyDef` cells as overlapping white
+    and black keys, supports click-and-drag glide and right-click latch on
+    individual notes, and exposes an inline :class:`KeyboardChordCard` that
+    follows the active chord when chord-monitoring is on.
+    """
+
     def __init__(self, layout_model: Layout, midi_out: MidiOut, title: str = "", show_header: bool = True, compact_controls: bool = True, scale: float = 1.0):
+        """Build the keyboard from a precomputed :class:`Layout`.
+
+        Args:
+            layout_model: Key arrangement, typically from
+                :func:`app.piano_layout.create_piano_by_size`.
+            midi_out: Shared MIDI output used for note and CC events.
+            title: Optional title forwarded to :meth:`update_window_title`.
+            show_header: Whether to display the on-keyboard control header.
+            compact_controls: Use the compact button styling preset.
+            scale: UI scale factor applied to fonts, padding, and key size.
+        """
         super().__init__()
         self.layout_model = layout_model
         self.midi = midi_out
@@ -1163,7 +1237,7 @@ class KeyboardWidget(QWidget):
         return int(base_note + 12 * (self.layout_model.base_octave + self.octave_offset))
 
     def change_octave(self, delta: int):
-        # Clamp to a reasonable range to avoid running off MIDI limits
+        """Shift the octave offset by ``delta``, clamped to ``[-5, 5]``."""
         delta = int(delta)
         new_off = max(-5, min(5, self.octave_offset + delta))
         if new_off != self.octave_offset:
@@ -1218,15 +1292,18 @@ class KeyboardWidget(QWidget):
             pass
 
     def set_show_mod_wheel(self, show: bool):
+        """Toggle the mod-wheel slider visibility in the left panel."""
         self.show_mod_wheel = bool(show)
         self._update_left_panel_width()
 
     def set_show_pitch_wheel(self, show: bool):
+        """Toggle the pitch-wheel slider visibility in the left panel."""
         self.show_pitch_wheel = bool(show)
         self._update_left_panel_width()
 
     # --- Sizing helpers ---
     def sizeHint(self) -> QSize:  # type: ignore[override]
+        """Return a size that fits the keyboard plus header/control rows."""
         try:
             width = int(self.piano_container.width())
         except Exception:
@@ -1247,6 +1324,7 @@ class KeyboardWidget(QWidget):
 
     # --- Visual helpers ---
     def _apply_btn_visual(self, btn: QPushButton | None, down: bool, held: bool):
+        """Toggle the ``active``/``held`` dynamic properties used by the key stylesheet."""
         if btn is None:
             return
         try:
@@ -1293,6 +1371,7 @@ class KeyboardWidget(QWidget):
             pass
 
     def _apply_note_visual(self, note: int, down: bool, held: bool):
+        """Apply the active/held visual to the button bound to base ``note``."""
         try:
             btn = self.key_buttons.get(note)
         except Exception:
@@ -1331,6 +1410,12 @@ class KeyboardWidget(QWidget):
             pass
 
     def on_key_press(self, key: KeyDef):
+        """Handle a left-press on ``key`` honoring sustain, latch, and polyphony cap.
+
+        In latch mode an already-active note is released; otherwise a Note
+        On is sent (stealing the oldest voice when the polyphony cap is
+        reached) and drag tracking begins so glide-across-keys works.
+        """
         base_note = key.note
         note = self.effective_note(base_note)
         ch = self.midi_channel
@@ -1418,10 +1503,15 @@ class KeyboardWidget(QWidget):
                 pass
 
     def on_key_release(self, key: KeyDef):
+        """Release ``key`` according to current sustain/latch state.
+
+        Latched keys keep sounding and stay visually held; sustained keys
+        remain in ``active_notes`` until sustain is turned off; otherwise a
+        Note Off is sent immediately.
+        """
         base_note = key.note
         note = self.effective_note(base_note)
         ch = self.midi_channel
-        # Latch: reflect latched state
         if getattr(self, 'latch', False):
             if (note, ch) in self.active_notes:
                 self._apply_note_visual(base_note, True, True)
@@ -1836,6 +1926,7 @@ class KeyboardWidget(QWidget):
             self._update_chord_card()
 
     def toggle_latch(self):
+        """Toggle latch invoked from the header button; sync via :meth:`set_latch`."""
         self.set_latch(self.latch_btn.isChecked())
 
     def set_chord_monitor(self, checked: bool):
@@ -1845,6 +1936,7 @@ class KeyboardWidget(QWidget):
         self._update_chord_card()
 
     def keyPressEvent(self, event):
+        """Handle the keyboard shortcuts (Z/X octave, 1/2/3 curve, Q quantize, Esc panic)."""
         k = event.key()
         if k == Qt.Key_Z:
             self.change_octave(-1)
@@ -1863,6 +1955,7 @@ class KeyboardWidget(QWidget):
             self.all_notes_off()
 
     def all_notes_off(self):
+        """Send Note Off for every active voice, clear visuals, and refresh the chord card."""
         for note, ch in list(self.active_notes):
             self.midi.note_off(note, ch)
         self.active_notes.clear()
@@ -1968,12 +2061,13 @@ class KeyboardWidget(QWidget):
 
     # ---- Polyphony setters ----
     def set_polyphony_enabled(self, enabled: bool):
+        """Enable or disable the polyphony cap; disabling never silences existing voices."""
         self.polyphony_enabled = bool(enabled)
         if not self.polyphony_enabled:
-            # Unlimited: no action needed; existing voices persist
             return
 
     def set_polyphony_max(self, maximum: int):
+        """Set the polyphony ceiling (1-8); steals oldest voices if currently exceeded."""
         self.polyphony_max = max(1, min(8, int(maximum)))
         if not self.polyphony_enabled:
             return
@@ -2001,7 +2095,7 @@ class KeyboardWidget(QWidget):
         self.update_window_title()
 
     def update_window_title(self):
-        # Use the layout's computed name (already reflects total key count correctly)
+        """Refresh the window title with the layout name, port, and channel."""
         base = getattr(self.layout_model, 'name', 'Keyboard')
         port_suffix = f" -> {self.port_name}" if self.port_name else ""
         ch_suffix = f" [Ch {self.midi_channel + 1}]"
@@ -2094,6 +2188,7 @@ class KeyboardWidget(QWidget):
             pass
 
     def _stop_pitch_anim(self):
+        """Cancel the pitch-wheel return animation if one is running."""
         anim = getattr(self, '_pitch_anim', None)
         if anim is not None:
             try:

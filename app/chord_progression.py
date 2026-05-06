@@ -98,6 +98,7 @@ class TransitionTable:
 
     @property
     def total_progressions(self) -> int:
+        """Total number of source progressions that contributed to this table."""
         return sum(self.start_counts.values())
 
     def get_successors(self, token: str) -> Dict[str, int]:

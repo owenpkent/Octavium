@@ -1,3 +1,5 @@
+"""Eight-channel fader surface that emits MIDI CC messages."""
+
 from typing import List
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSlider, QSizePolicy
@@ -11,15 +13,21 @@ from .keyboard_widget import DragReferenceSlider
 
 
 class FadersWidget(QWidget):
-    """A simple 4-channel faders surface with per-channel CC sliders and bottom buttons.
+    """Eight vertical faders that send MIDI Control Change messages.
 
-    - 4 vertical faders mapped to MIDI CC by default: [1, 7, 74, 10]
-    - Live sends CC on value change on the current channel
-    - 4 bottom buttons send Note On/Off (C4..D#4) as momentary triggers
-    - Has a compact header with an "All Notes Off" safety button
-    - Scales with the same ui_scale convention as other widgets
+    Each fader is bound to a CC number (defaults: ``[1, 7, 74, 10, 71, 73, 11, 91]``)
+    and sends on the widget's current channel whenever its value changes.
+    Geometry scales uniformly with ``ui_scale`` to match sibling surfaces.
     """
+
     def __init__(self, midi_out: MidiOut, scale: float = 1.0, cc_numbers: List[int] | None = None):
+        """Build the faders surface.
+
+        Args:
+            midi_out: Shared MIDI output used to emit CC messages.
+            scale: UI scale factor applied to widget geometry.
+            cc_numbers: Optional list of up to eight CC numbers (0-127).
+        """
         super().__init__()
         self.midi: MidiOut = midi_out
         self.port_name: str = ""
@@ -103,6 +111,7 @@ class FadersWidget(QWidget):
         self.setLayout(root)
 
     def sizeHint(self) -> QSize:  # type: ignore[override]
+        """Return the preferred widget size scaled by ``ui_scale``."""
         try:
             pad = int(18 * self.ui_scale)
             slider_height = int(300 * self.ui_scale)
@@ -115,12 +124,18 @@ class FadersWidget(QWidget):
 
     # --- External API parity with other widgets ---
     def set_channel(self, channel_1_based: int):
+        """Select the MIDI channel used for outgoing CC messages.
+
+        Args:
+            channel_1_based: Channel number in the user-facing 1-16 range.
+        """
         try:
             self.midi_channel = max(1, min(16, int(channel_1_based))) - 1
         except Exception:
             self.midi_channel = 0
 
     def set_midi_out(self, midi: MidiOut, port_name: str = ""):
+        """Swap the MIDI output and remember the active port name."""
         try:
             self.midi = midi
         except Exception:
@@ -132,6 +147,7 @@ class FadersWidget(QWidget):
 
     # --- Handlers ---
     def _on_slider(self, idx: int, value: int):
+        """Cache the new fader value and emit a CC on the current channel."""
         value = max(0, min(127, int(value)))
         try:
             self._values[idx] = value
@@ -145,9 +161,15 @@ class FadersWidget(QWidget):
 
     # --- CC assignment API ---
     def get_cc_numbers(self) -> List[int]:
+        """Return a copy of the CC numbers currently bound to each fader."""
         return list(self.cc_numbers)
 
     def set_cc_numbers(self, nums: List[int]):
+        """Re-bind faders to the given CC numbers.
+
+        Values are clamped to ``[0, 127]``, truncated to eight, and padded
+        with zeros if fewer than eight numbers are supplied.
+        """
         try:
             cleaned = [max(0, min(127, int(n))) for n in nums][:8]
             # pad to 8 if shorter
@@ -167,13 +189,20 @@ class FadersWidget(QWidget):
 
     # --- Values API (for preserving on zoom/switch) ---
     def get_values(self) -> List[int]:
+        """Return the current fader values clamped to ``[0, 127]``."""
         try:
             return [max(0, min(127, int(v))) for v in self._values[:8]]
         except Exception:
             return [64] * 8
 
     def set_values(self, values: List[int], emit: bool = False):
-        """Set slider positions. If emit is False, do not send CC while applying."""
+        """Restore fader positions without emitting MIDI by default.
+
+        Args:
+            values: Up to eight integer values; missing entries default to 64.
+            emit: If ``True``, send CC messages as values are applied;
+                otherwise signals are blocked so restore is silent.
+        """
         try:
             vals = [max(0, min(127, int(v))) for v in values][:8]
             while len(vals) < 8:

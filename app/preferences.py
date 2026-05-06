@@ -1,8 +1,4 @@
-"""
-Preferences Window Module
-
-Provides a preferences dialog for configuring MIDI ports and keyboard sizes.
-"""
+"""Modal preferences dialog for MIDI port and keyboard size selection."""
 
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                                QComboBox, QPushButton, QGroupBox, QFormLayout)
@@ -11,13 +7,24 @@ import pygame.midi
 
 
 class PreferencesDialog(QDialog):
-    """Preferences dialog for MIDI and keyboard settings"""
-    
-    # Signals emitted when settings change
+    """Modal dialog for selecting the MIDI output port and keyboard size.
+
+    Emits :attr:`midi_port_changed` and :attr:`keyboard_size_changed` whenever
+    a value is applied so the host can reconfigure live without restart.
+    """
+
     midi_port_changed = Signal(str)
     keyboard_size_changed = Signal(int)
-    
+
     def __init__(self, parent=None, current_midi_port="", current_keyboard_size=61):
+        """Create the dialog seeded with the caller's current selections.
+
+        Args:
+            parent: Parent widget for modal ownership.
+            current_midi_port: Name of the currently selected MIDI port,
+                or ``""`` for the auto/first-available behavior.
+            current_keyboard_size: Active keyboard key count (49/61/73/76/88).
+        """
         super().__init__(parent)
         self.setWindowTitle("Preferences")
         self.setModal(True)
@@ -30,7 +37,7 @@ class PreferencesDialog(QDialog):
         self.load_midi_ports()
         
     def setup_ui(self):
-        """Setup the preferences UI"""
+        """Build the form fields, group boxes, and dialog buttons."""
         layout = QVBoxLayout(self)
         
         # MIDI Settings Group
@@ -83,7 +90,7 @@ class PreferencesDialog(QDialog):
         layout.addLayout(button_layout)
         
     def load_midi_ports(self):
-        """Load available MIDI output ports"""
+        """Populate the port combo with the system's available outputs."""
         self.midi_port_combo.clear()
         
         try:
@@ -113,19 +120,19 @@ class PreferencesDialog(QDialog):
             self.midi_port_combo.addItem("No MIDI ports available")
     
     def get_selected_keyboard_size(self):
-        """Get the selected keyboard size"""
+        """Return the keyboard key count for the current combo selection."""
         size_map = {0: 49, 1: 61, 2: 73, 3: 76, 4: 88}
         return size_map.get(self.keyboard_size_combo.currentIndex(), 61)
-    
+
     def get_selected_midi_port(self):
-        """Get the selected MIDI port"""
+        """Return the chosen port name, or ``""`` when Auto is selected."""
         text = self.midi_port_combo.currentText()
         if text == "Auto (First Available)":
             return ""
         return text
-    
+
     def apply_settings(self):
-        """Apply the current settings without closing dialog"""
+        """Emit change signals for any value that differs from the cached state."""
         midi_port = self.get_selected_midi_port()
         keyboard_size = self.get_selected_keyboard_size()
         
@@ -138,6 +145,6 @@ class PreferencesDialog(QDialog):
             self.current_keyboard_size = keyboard_size
     
     def accept_settings(self):
-        """Apply settings and close dialog"""
+        """Apply pending changes and close the dialog with an accept result."""
         self.apply_settings()
         self.accept()

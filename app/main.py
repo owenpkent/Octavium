@@ -1,3 +1,10 @@
+"""Main keyboard window: hosts a piano, harmonic table, pad grid, faders, or XY fader.
+
+Owns the active controller widget, the MIDI output, and all menus that
+operate on it (zoom, channel, view switching, chord monitor, etc.).
+:func:`run` is the entry point used when this module is launched directly.
+"""
+
 import sys
 import traceback
 from datetime import datetime
@@ -32,7 +39,28 @@ from .chord_monitor_window import ChordMonitorWindow
 
 
 class MainWindow(QMainWindow):
+    """Top-level window that swaps between piano, harmonic-table, and other surfaces.
+
+    The active controller is held in :attr:`keyboard` regardless of type;
+    helpers like :meth:`set_harmonic_table` and :meth:`set_pad_grid`
+    replace it in place while preserving channel and zoom state.
+    """
+
     def __init__(self, app_ref: QApplication, size: int = 49, port_hint: str = "loopMIDI Port 1", midi: MidiOut | None = None):
+        """Build the main window with an initial piano keyboard.
+
+        Args:
+            app_ref: The owning :class:`QApplication`.
+            size: Initial piano key count (25/49/61/73/76/88).
+            port_hint: Substring used to pick a MIDI output port when one
+                is not provided explicitly.
+            midi: Optional shared :class:`MidiOut`; when supplied the
+                window will not attempt to open or close the port itself.
+
+        Raises:
+            RuntimeError: Propagated from :class:`MidiOut` when no MIDI
+                output port can be opened.
+        """
         super().__init__()
         self.app_ref = app_ref
         # Set window icon
@@ -129,6 +157,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _update_xy_menu_enabled(self):
+        """Enable the 'Configure XY CCs' menu only when an XY fader is active."""
         try:
             act = self.menu_actions.get('xy_cc')
             if isinstance(act, QAction):
@@ -137,7 +166,7 @@ class MainWindow(QMainWindow):
             pass
 
     def open_xy_cc_dialog(self):
-        """Dropdowns for two CC numbers (X and Y)."""
+        """Show a modal dialog letting the user pick CC numbers for the XY axes."""
         try:
             if not isinstance(self.keyboard, XYFaderWidget):
                 QMessageBox.information(self, "XY Fader", "Switch to Keyboard > XY Fader to edit CC assignments.")
@@ -173,6 +202,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _build_menus(self):
+        """Construct the application menu bar (File / View / Keyboard / Help)."""
         menubar = self.menuBar()
 
         # File menu
@@ -380,7 +410,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _build_remaining_menus(self, menubar, view_menu):
-        # Zoom submenu with preset levels
+        """Add the Zoom, Keyboard, MIDI, Voices, Channel, and Help menus."""
         try:
             zoom_menu = view_menu.addMenu("Zoom")
             self.zoom_group = QActionGroup(self)
@@ -557,7 +587,11 @@ class MainWindow(QMainWindow):
         help_menu.addAction(about_action)
 
     def set_keyboard_size(self, size: int):
-        # If already on piano with the same size, do nothing; otherwise allow switch (e.g., from pad grid)
+        """Replace the central widget with a piano of ``size`` keys (49/61/73/76/88).
+
+        Preserves the active channel, zoom, sustain, polyphony cap, and
+        wheel-visibility preferences across the switch.
+        """
         if size == self.current_size and getattr(self, 'current_layout_type', 'piano') == 'piano':
             return
         self.current_size = size
@@ -673,7 +707,7 @@ class MainWindow(QMainWindow):
             pass
     
     def select_midi_port(self):
-        # Don't allow port changes when using shared MIDI from launcher
+        """Prompt for a new MIDI output port (no-op when sharing a launcher port)."""
         if self.midi_is_shared:
             QMessageBox.information(
                 self,
@@ -725,6 +759,7 @@ class MainWindow(QMainWindow):
             pass
 
     def new_keyboard_window(self):
+        """Spawn a sibling :class:`MainWindow` sharing this window's MIDI output."""
         win = MainWindow(self.app_ref, size=self.current_size, port_hint=self.keyboard.port_name or "", midi=self.keyboard.midi)
         win.set_channel(self.current_channel)
         # Apply current zoom to the new window
@@ -781,13 +816,18 @@ class MainWindow(QMainWindow):
         self._update_window_title()
 
     def set_zoom(self, scale: float):
+        """Rebuild the central widget at the new UI scale, preserving its state.
+
+        Args:
+            scale: Multiplier (e.g. ``1.0`` for 100%, ``1.25`` for 125%).
+                Non-positive values are coerced to ``1.0``.
+        """
         try:
             scale = float(scale)
         except Exception:
             scale = 1.0
         if scale <= 0:
             scale = 1.0
-        # If no change, do nothing
         try:
             curr = float(getattr(self.keyboard, 'ui_scale', 1.0))
         except Exception:
@@ -945,8 +985,12 @@ class MainWindow(QMainWindow):
         ))
 
     def _resize_for_layout(self, layout):
-        """Resize the window to fit current keyboard content width.
-        Prefers the actual `piano_container.width()`; falls back to `columns * 44`.
+        """Resize the window to fit the current central widget.
+
+        Prefers the central widget's ``sizeHint``; for piano widgets it
+        falls back to ``piano_container.width()`` and ultimately to
+        ``columns * 44`` scaled by ``ui_scale``. Pad grid, faders, and
+        XY fader widgets are sized to their hint exactly.
         """
         # Prefer the central widget's own size hint; this works for both piano and pad grid.
         try:
@@ -1038,6 +1082,7 @@ class MainWindow(QMainWindow):
         self.resize(target_width, target_height)
         self.setMaximumSize(16777215, 16777215)
     def _get_zoom_presets(self) -> list[float]:
+        """Return the configured zoom presets as scale factors (e.g. ``[0.5, 0.75, ...]``)."""
         scales: list[float] = []
         try:
             acts = getattr(self, 'zoom_actions', [])
@@ -1061,6 +1106,7 @@ class MainWindow(QMainWindow):
         return scales
 
     def _zoom_in_step(self):
+        """Step up to the next preset zoom level (Ctrl++)."""
         scales = self._get_zoom_presets()
         curr = float(getattr(self, 'current_scale', 1.0))
         # find nearest index >= curr
@@ -1079,6 +1125,7 @@ class MainWindow(QMainWindow):
             self.set_zoom(min(2.0, curr * 1.1))
 
     def _zoom_out_step(self):
+        """Step down to the previous preset zoom level (Ctrl+-)."""
         scales = self._get_zoom_presets()
         curr = float(getattr(self, 'current_scale', 1.0))
         try:
@@ -1094,6 +1141,7 @@ class MainWindow(QMainWindow):
         except Exception:
             self.set_zoom(max(0.5, curr / 1.1))
     def show_keyboard_shortcuts(self):
+        """Show a small modal listing the keyboard shortcut bindings."""
         text = (
             "Keyboard shortcuts:\n\n"
             "- Z / X: Octave Down / Up\n"
@@ -1108,7 +1156,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Keyboard Shortcuts", text)
     
     def show_user_guide(self):
-        """Show comprehensive user guide dialog."""
+        """Show the rich-text user guide in a scrollable modal dialog."""
         dialog = QDialog(self)
         dialog.setWindowTitle("Octavium User Guide")
         dialog.setMinimumSize(700, 600)
@@ -1328,6 +1376,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def show_about_dialog(self):
+        """Show the About dialog with logo, copyright, feature summary, and current port."""
         year = datetime.now().year
         # Build logo HTML at the top, centered
         logo_html = ""
@@ -1363,6 +1412,7 @@ class MainWindow(QMainWindow):
         msg.exec()
 
     def _update_window_title(self):
+        """Refresh the window title to include the current channel and surface name."""
         try:
             title_part = None
             # If the widget exposes a layout_model, use its name
@@ -1383,6 +1433,7 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"Octavium [Ch {self.current_channel}]")
 
     def _safe_close_midi(self):
+        """Close the keyboard widget's MIDI output, swallowing teardown errors."""
         try:
             if hasattr(self, 'keyboard') and hasattr(self.keyboard, 'midi') and self.keyboard.midi is not None:
                 self.keyboard.midi.close()
@@ -1390,7 +1441,7 @@ class MainWindow(QMainWindow):
             pass
 
     def closeEvent(self, event):  # type: ignore[override]
-        # Close chord monitor window if open
+        """Close the chord monitor and MIDI port before tearing down the window."""
         try:
             self._close_chord_monitor_window()
         except Exception:
@@ -1409,6 +1460,7 @@ class MainWindow(QMainWindow):
                 pass
 
     def _apply_show_mod_wheel(self, checked: bool):
+        """Toggle mod-wheel visibility on the active widget if it supports it."""
         try:
             fn = getattr(self.keyboard, 'set_show_mod_wheel', None)
             if callable(fn):
@@ -1417,6 +1469,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _apply_show_pitch_wheel(self, checked: bool):
+        """Toggle pitch-wheel visibility on the active widget if it supports it."""
         try:
             fn = getattr(self.keyboard, 'set_show_pitch_wheel', None)
             if callable(fn):
@@ -1525,6 +1578,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _update_faders_menu_enabled(self):
+        """Enable the 'Configure Faders CCs' menu only when the faders widget is active."""
         try:
             act = self.menu_actions.get('faders_cc')
             if isinstance(act, QAction):
@@ -1533,7 +1587,7 @@ class MainWindow(QMainWindow):
             pass
 
     def open_faders_cc_dialog(self):
-        """Prompt for 8 comma-separated CC numbers and apply to the FadersWidget."""
+        """Show a modal dialog letting the user assign CC numbers to all eight faders."""
         try:
             if not isinstance(self.keyboard, FadersWidget):
                 QMessageBox.information(self, "Faders", "Switch to Keyboard > Faders to edit CC assignments.")
@@ -1577,6 +1631,7 @@ class MainWindow(QMainWindow):
 # --- Simple data-entry dialog classes (module-local) could be added here if needed ---
 
 def run():
+    """Module entry point: create the QApplication and show a single keyboard window."""
     from .faders import FadersWidget
     app = QApplication(sys.argv)
     app.setStyleSheet(APP_STYLES)

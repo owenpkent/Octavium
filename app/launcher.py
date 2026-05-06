@@ -11,9 +11,21 @@ import sys
 
 
 class LauncherWindow(QMainWindow):
-    """Main launcher window for Octavium - allows opening multiple windows."""
-    
+    """Top-level launcher that owns the shared MIDI port and child windows.
+
+    Holds a single shared :class:`MidiOut` so every spawned surface writes
+    to the same port without re-opening it; child windows registered in
+    :attr:`opened_windows` are notified through ``update_midi_out`` whenever
+    the port changes.
+    """
+
     def __init__(self, app: QApplication):
+        """Build the launcher and open the preferred MIDI output port.
+
+        Args:
+            app: The owning :class:`QApplication`; retained so child windows
+                can be parented and the launcher can be referenced from it.
+        """
         super().__init__()
         self.app = app
         self.opened_windows: List[Any] = []

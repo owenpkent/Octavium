@@ -1,12 +1,19 @@
-"""
-61-Key Piano Layout (5 Octaves)
+"""Hand-built 61-key piano layout (5 octaves, C2-C7).
+
+Used as an explicit alternative to :func:`app.piano_layout.create_61_key_piano`,
+which generates the same shape programmatically.
 """
 
 from .models import Layout, RowDef, KeyDef
 
 
 def create_61_key_piano() -> Layout:
-    """Create a 61-key piano layout (5 octaves, C2-C7)."""
+    """Build a 61-key piano :class:`Layout` spanning C2 to C7.
+
+    Returns:
+        A two-row layout: 36 white keys on the lower row and 25 black keys
+        (with transparent spacers) overlaid on the upper row.
+    """
     
     # White keys for 61-key piano (36 white keys)
     white_keys = [

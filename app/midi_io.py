@@ -1,3 +1,10 @@
+"""MIDI output abstraction with rtmidi/pygame backends.
+
+Selects the best available Mido backend at import time and patches a few
+edge cases that arise when ``pygame.midi`` is torn down during interpreter
+shutdown. :class:`MidiOut` is the public surface used elsewhere in the app.
+"""
+
 import mido
 import pygame.midi
 import sys
@@ -86,8 +93,25 @@ def _cleanup_pygame_midi():
 atexit.register(_cleanup_pygame_midi)
 
 class MidiOut:
+    """Thin wrapper that sends MIDI messages over mido or pygame.midi.
+
+    Mido is preferred; pygame.midi is used as a fallback when no Mido backend
+    is available. Instances marked ``is_shared`` are not closed by
+    :meth:`close` so the launcher can manage their lifetime centrally.
+    """
+
     def __init__(self, port_name_contains: str | None = None, is_shared: bool = False):
-        # Try mido first, fallback to pygame
+        """Open the first matching MIDI output port.
+
+        Args:
+            port_name_contains: Case-insensitive substring; if no match is
+                found the first available output is used.
+            is_shared: If ``True``, :meth:`close` becomes a no-op so the
+                owning process can keep the port open across widgets.
+
+        Raises:
+            RuntimeError: When no MIDI outputs are available on either backend.
+        """
         self.use_pygame = False
         self.is_shared = is_shared  # If True, don't close port on cleanup
         try:
@@ -153,6 +177,7 @@ class MidiOut:
             _active_midi_ports.append(weakref.ref(self))
 
     def note_on(self, note: int, velocity: int, channel: int = 0):
+        """Send a Note On message; velocity is clamped to ``[1, 127]``."""
         try:
             velocity = max(1, min(127, velocity))
             if self.use_pygame:
@@ -171,6 +196,7 @@ class MidiOut:
                 print(f"✗ MIDI note_on FAILED: {type(e).__name__}: {e}  (port={self.port}, pygame={self.use_pygame})")
 
     def note_off(self, note: int, channel: int = 0):
+        """Send a Note Off message; failures are silently ignored."""
         try:
             if self.use_pygame:
                 # pygame MIDI format: [status_byte, data1, data2]
@@ -186,6 +212,7 @@ class MidiOut:
             pass
 
     def cc(self, cc: int, value: int, channel: int = 0):
+        """Send a Control Change message; ``value`` is clamped to ``[0, 127]``."""
         try:
             value = max(0, min(127, value))
             if self.use_pygame:
@@ -202,7 +229,12 @@ class MidiOut:
             pass
 
     def pitch_bend(self, value: int, channel: int = 0):
-        """Send pitch bend value in range [-8192, 8191]."""
+        """Send a pitch bend message.
+
+        Args:
+            value: Signed bend in ``[-8192, 8191]``; clamped if out of range.
+            channel: 0-based MIDI channel.
+        """
         try:
             v = max(-8192, min(8191, int(value)))
             if self.use_pygame:

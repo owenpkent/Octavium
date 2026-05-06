@@ -1,3 +1,5 @@
+"""Draggable two-axis CC pad widget."""
+
 from typing import Tuple
 from types import SimpleNamespace
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSizePolicy
@@ -8,13 +10,22 @@ from .midi_io import MidiOut
 
 
 class XYFaderWidget(QWidget):
-    """Draggable XY pad that sends two MIDI CC values (X and Y) on the current channel.
+    """Draggable XY pad that emits two MIDI CC streams.
 
-    - Blue color scheme to match app
-    - Optional Lock X / Lock Y buttons and Reset
-    - Provides get/set for CC numbers and XY values to preserve across zoom
+    The pad emits ``cc_x`` on horizontal motion and ``cc_y`` on vertical
+    motion. Lock toggles freeze either axis, ``RESET`` returns the cursor to
+    center (64, 64), and the widget scales with ``ui_scale``.
     """
+
     def __init__(self, midi_out: MidiOut, scale: float = 1.0, cc_x: int = 1, cc_y: int = 74):
+        """Build the XY pad and assign initial CC numbers.
+
+        Args:
+            midi_out: Shared MIDI output used for outgoing CC messages.
+            scale: UI scale factor applied to widget geometry.
+            cc_x: MIDI CC number sent on the X axis (default Modulation).
+            cc_y: MIDI CC number sent on the Y axis (default Brightness).
+        """
         super().__init__()
         self.midi: MidiOut = midi_out
         self.port_name: str = ""
@@ -100,6 +111,7 @@ class XYFaderWidget(QWidget):
 
     # ---- Painting ----
     def sizeHint(self) -> QSize:  # type: ignore[override]
+        """Return the preferred widget size, sized for a square pad area."""
         try:
             pad_side = int(420 * self.ui_scale)
             controls_h = int(48 * self.ui_scale)
@@ -108,10 +120,11 @@ class XYFaderWidget(QWidget):
             return QSize(460, 480)
 
     def minimumSizeHint(self) -> QSize:  # type: ignore[override]
+        """Mirror :meth:`sizeHint` so the widget never shrinks below it."""
         return self.sizeHint()
 
     def _pad_rect(self) -> QRectF:
-        # Compute square area for pad within widget rect, leaving space for controls at bottom
+        """Return the square pad rectangle, reserving room for the control row."""
         w = self.width()
         h = self.height()
         try:
@@ -125,6 +138,7 @@ class XYFaderWidget(QWidget):
         return QRectF(x, y, side, side)
 
     def paintEvent(self, _):  # type: ignore[override]
+        """Render the pad background, grid, and current-value knob."""
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         # Background
@@ -157,7 +171,7 @@ class XYFaderWidget(QWidget):
 
     # ---- Helpers ----
     def _pos_to_value(self, pt: QPointF, pad: QRectF) -> Tuple[int, int]:
-        # map position within pad to 0..127 (x increases right, y increases up)
+        """Convert a point inside ``pad`` to clamped (X, Y) CC values 0-127."""
         fx = (pt.x() - pad.left()) / max(1.0, pad.width())
         fy = (pt.y() - pad.top()) / max(1.0, pad.height())
         fx = min(1.0, max(0.0, fx))
@@ -167,6 +181,7 @@ class XYFaderWidget(QWidget):
         return vx, vy
 
     def _value_to_pos(self, vx: int, vy: int, pad: QRectF) -> Tuple[float, float]:
+        """Convert (X, Y) CC values to a point inside ``pad``."""
         fx = min(1.0, max(0.0, vx / 127.0))
         fy = min(1.0, max(0.0, 1.0 - (vy / 127.0)))
         x = pad.left() + fx * pad.width()
@@ -174,18 +189,18 @@ class XYFaderWidget(QWidget):
         return x, y
 
     def mousePressEvent(self, ev):  # type: ignore[override]
+        """Record the press point so subsequent motion is interpreted as a relative drag."""
         if ev.button() != Qt.LeftButton:
             return super().mousePressEvent(ev)
         self._dragging = True
-        # Store reference point and current values; do not move yet
         self._press_pos = ev.position()
         self._press_val_x = int(self.val_x)
         self._press_val_y = int(self.val_y)
 
     def mouseMoveEvent(self, ev):  # type: ignore[override]
+        """Translate cursor motion into proportional CC deltas, honoring axis locks."""
         if not self._dragging:
             return super().mouseMoveEvent(ev)
-        # Relative drag from the press point -> value deltas across full pad span
         if self._press_pos is None or self._press_val_x is None or self._press_val_y is None:
             return super().mouseMoveEvent(ev)
         pad = self._pad_rect()
@@ -217,6 +232,7 @@ class XYFaderWidget(QWidget):
             self.update()
 
     def mouseReleaseEvent(self, ev):  # type: ignore[override]
+        """End the drag and clear the cached press reference."""
         if self._dragging:
             self._dragging = False
             self._press_pos = None
@@ -225,6 +241,7 @@ class XYFaderWidget(QWidget):
         return super().mouseReleaseEvent(ev)
 
     def _update_from_point(self, pt: QPointF):
+        """Set CC values from an absolute pad point (used by tap-to-set callers)."""
         pad = self._pad_rect()
         vx, vy = self._pos_to_value(pt, pad)
         if not self.lock_x:
@@ -242,12 +259,14 @@ class XYFaderWidget(QWidget):
         self.update()
 
     def _set_lock(self, axis: str, checked: bool):
+        """Enable or disable axis locking; ``axis`` is ``'x'`` or ``'y'``."""
         if axis == 'x':
             self.lock_x = bool(checked)
         elif axis == 'y':
             self.lock_y = bool(checked)
 
     def _reset_center(self):
+        """Snap the cursor to (64, 64) and emit current values on both axes."""
         self.val_x = 64
         self.val_y = 64
         try:
@@ -259,12 +278,14 @@ class XYFaderWidget(QWidget):
 
     # --- External API parity ---
     def set_channel(self, channel_1_based: int):
+        """Select the MIDI channel used for outgoing CC messages."""
         try:
             self.midi_channel = max(1, min(16, int(channel_1_based))) - 1
         except Exception:
             self.midi_channel = 0
 
     def set_midi_out(self, midi: MidiOut, port_name: str = ""):
+        """Swap the MIDI output and remember the active port name."""
         try:
             self.midi = midi
         except Exception:
@@ -276,9 +297,11 @@ class XYFaderWidget(QWidget):
 
     # CC config
     def get_cc_numbers(self) -> Tuple[int, int]:
+        """Return the CC numbers bound to the X and Y axes."""
         return int(self.cc_x), int(self.cc_y)
 
     def set_cc_numbers(self, ccx: int, ccy: int):
+        """Re-bind X and Y to new CC numbers, clamped to ``[0, 127]``."""
         try:
             self.cc_x = int(max(0, min(127, ccx)))
             self.cc_y = int(max(0, min(127, ccy)))
@@ -287,9 +310,11 @@ class XYFaderWidget(QWidget):
 
     # Values
     def get_values(self) -> Tuple[int, int]:
+        """Return the current (X, Y) values clamped to ``[0, 127]``."""
         return int(self.val_x), int(self.val_y)
 
     def set_values(self, vx: int, vy: int, emit: bool = False):
+        """Restore (X, Y) values; emit CC messages only when ``emit`` is True."""
         try:
             self.val_x = int(max(0, min(127, vx)))
             self.val_y = int(max(0, min(127, vy)))
